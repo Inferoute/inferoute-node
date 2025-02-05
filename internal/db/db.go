@@ -98,3 +98,28 @@ func (db *DB) HealthCheck() error {
 
 	return nil
 }
+
+// TxFuncInt is a function that executes in a transaction and returns an int and error
+type TxFuncInt func(*sql.Tx) (int, error)
+
+// ExecuteTxInt executes f in a transaction and returns an int
+func (db *DB) ExecuteTxInt(ctx context.Context, f TxFuncInt) (int, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("error starting transaction: %w", err)
+	}
+
+	result, err := f(tx)
+	if err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return 0, fmt.Errorf("error rolling back transaction: %v (original error: %w)", rbErr, err)
+		}
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("error committing transaction: %w", err)
+	}
+
+	return result, nil
+}

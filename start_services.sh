@@ -39,12 +39,18 @@ if [ -f bin/auth-service.pid ]; then
     rm bin/auth-service.pid
 fi
 
+if [ -f bin/provider-health.pid ]; then
+    kill $(cat bin/provider-health.pid) 2>/dev/null
+    rm bin/provider-health.pid
+fi
+
 # Start services
 start_service "provider-management" "bin/provider-management" "cmd/provider-management/main.go"
 start_service "auth-service" "bin/auth-service" "cmd/auth/main.go"
+start_service "provider-health" "bin/provider-health" "cmd/provider-health/main.go"
 
 echo -e "${GREEN}Services started successfully!${NC}"
 echo "To stop services, run: kill \$(cat bin/*.pid)"
 
-# Wait for both services
+# Wait for all services
 wait

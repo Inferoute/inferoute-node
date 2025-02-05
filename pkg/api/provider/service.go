@@ -194,41 +194,6 @@ func (s *Service) DeleteModel(ctx context.Context, providerID, modelID uuid.UUID
 	return nil
 }
 
-// GetStatus gets the current status of a provider
-func (s *Service) GetStatus(ctx context.Context, providerID uuid.UUID) (*GetStatusResponse, error) {
-	query := `
-		SELECT 
-			is_available,
-			paused,
-			health_check_status,
-			last_health_check
-		FROM provider_status
-		WHERE provider_id = $1`
-
-	status := &GetStatusResponse{}
-	err := s.db.QueryRowContext(ctx, query, providerID).Scan(
-		&status.IsAvailable,
-		&status.Paused,
-		&status.HealthCheckStatus,
-		&status.LastHealthCheck,
-	)
-
-	if err == sql.ErrNoRows {
-		// If no status exists yet, return default values
-		return &GetStatusResponse{
-			IsAvailable:       false,
-			Paused:            false,
-			HealthCheckStatus: false,
-			LastHealthCheck:   time.Now(),
-		}, nil
-	}
-	if err != nil {
-		return nil, common.ErrInternalServer(fmt.Errorf("error getting provider status: %w", err))
-	}
-
-	return status, nil
-}
-
 // PublishHealthUpdate publishes a health update message to RabbitMQ
 func (s *Service) PublishHealthUpdate(ctx context.Context, message ProviderHealthMessage) error {
 	// Convert message to JSON

@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS provider_status;
 DROP TABLE IF EXISTS balances;
 DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS provider_health_history;
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
@@ -47,9 +48,8 @@ CREATE TABLE IF NOT EXISTS provider_status (
     provider_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     is_available BOOLEAN NOT NULL DEFAULT false,
     last_health_check TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    health_check_status BOOLEAN NOT NULL DEFAULT false,
-    latency_ms INTEGER NOT NULL DEFAULT 0,
-    success_rate DECIMAL(5,2) NOT NULL DEFAULT 0.0,
+    health_status STRING NOT NULL DEFAULT 'red' CHECK (health_status IN ('green', 'orange', 'red')),
+    tier INT NOT NULL DEFAULT 3 CHECK (tier IN (1, 2, 3)),
     paused BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -95,6 +95,18 @@ CREATE TABLE IF NOT EXISTS transactions (
     INDEX (hmac)
 );
 
+-- Create provider_health_history table
+CREATE TABLE IF NOT EXISTS provider_health_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    health_status STRING NOT NULL CHECK (health_status IN ('green', 'orange', 'red')),
+    latency_ms INTEGER NOT NULL,
+    health_check_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    INDEX (provider_id, health_check_time DESC)
+);
+
 -- Create triggers to update updated_at timestamps
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -132,5 +144,10 @@ CREATE TRIGGER update_provider_models_updated_at
 
 CREATE TRIGGER update_transactions_updated_at
     BEFORE UPDATE ON transactions
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER update_provider_health_history_updated_at
+    BEFORE UPDATE ON provider_health_history
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();

@@ -30,15 +30,13 @@ type ProviderModel struct {
 
 // ProviderStatus represents the current status of a provider
 type ProviderStatus struct {
-	ProviderID        uuid.UUID `json:"provider_id"`
-	IsAvailable       bool      `json:"is_available"`
-	LastHealthCheck   time.Time `json:"last_health_check"`
-	HealthCheckStatus bool      `json:"health_check_status"`
-	LatencyMs         int       `json:"latency_ms"`
-	SuccessRate       float64   `json:"success_rate"`
-	IsHealthy         bool      `json:"is_healthy"`
-	LastError         string    `json:"last_error,omitempty"`
-	Paused            bool      `json:"paused"`
+	ProviderID      uuid.UUID `json:"provider_id"`
+	IsAvailable     bool      `json:"is_available"`
+	LastHealthCheck time.Time `json:"last_health_check"`
+	HealthStatus    bool      `json:"health_status"`
+	IsHealthy       bool      `json:"is_healthy"`
+	LastError       string    `json:"last_error,omitempty"`
+	Paused          bool      `json:"paused"`
 }
 
 // AddModelRequest represents a request to add a new model for a provider
@@ -65,10 +63,10 @@ type ListModelsResponse struct {
 
 // GetStatusResponse represents the provider's current status
 type GetStatusResponse struct {
-	IsAvailable       bool      `json:"is_available"`
-	Paused            bool      `json:"paused"`
-	HealthCheckStatus bool      `json:"health_check_status"`
-	LastHealthCheck   time.Time `json:"last_health_check"`
+	IsAvailable     bool      `json:"is_available"`
+	Paused          bool      `json:"paused"`
+	HealthStatus    bool      `json:"health_status"`
+	LastHealthCheck time.Time `json:"last_health_check"`
 }
 
 // UpdatePauseRequest represents the request to update a provider's pause status

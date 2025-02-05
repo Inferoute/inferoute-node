@@ -3,6 +3,8 @@ package common
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/labstack/echo/v4"
 )
 
 // AppError represents an application error
@@ -112,4 +114,36 @@ func GetErrorResponse(err error) map[string]interface{} {
 			"message": "Internal server error",
 		},
 	}
+}
+
+type ErrorResponse struct {
+	Message string `json:"message"`
+	Error   string `json:"error,omitempty"`
+}
+
+func NewErrorResponse(message string, err error) *ErrorResponse {
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+	return &ErrorResponse{
+		Message: message,
+		Error:   errStr,
+	}
+}
+
+func NewBadRequestError(message string) error {
+	return echo.NewHTTPError(http.StatusBadRequest, NewErrorResponse(message, nil))
+}
+
+func NewInternalError(message string, err error) error {
+	return echo.NewHTTPError(http.StatusInternalServerError, NewErrorResponse(message, err))
+}
+
+func NewNotFoundError(message string) error {
+	return echo.NewHTTPError(http.StatusNotFound, NewErrorResponse(message, nil))
+}
+
+func NewUnauthorizedError(message string) error {
+	return echo.NewHTTPError(http.StatusUnauthorized, NewErrorResponse(message, nil))
 }

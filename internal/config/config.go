@@ -36,36 +36,17 @@ func LoadConfig(configPath string) (*Config, error) {
 
 	// Load .env file.
 	v.SetConfigFile(".env")
-	fmt.Printf("Attempting to read .env file...\n")
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("error reading .env file: %v", err)
 	}
-	fmt.Printf("Successfully read .env file\n")
 
 	// Override with environment variables.
 	v.AutomaticEnv()
-
-	// Debug: Print database name specifically
-	fmt.Printf("DATABASE_DBNAME from env: %s\n", v.GetString("DATABASE_DBNAME"))
-
-	// Debug: Print all keys in viper
-	fmt.Printf("All keys in viper:\n")
-	for _, key := range v.AllKeys() {
-		fmt.Printf("%s = %v\n", key, v.Get(key))
-	}
 
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
 		return nil, fmt.Errorf("error unmarshaling config: %v", err)
 	}
-
-	// Debug: Print database config.
-	fmt.Printf("\nDatabase Config: host=%s port=%d dbname=%s user=%s sslmode=%s\n",
-		config.DatabaseHost,
-		config.DatabasePort,
-		config.DatabaseDBName,
-		config.DatabaseUser,
-		config.DatabaseSSLMode)
 
 	if err := validateConfig(&config); err != nil {
 		return nil, err
