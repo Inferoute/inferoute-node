@@ -3,8 +3,9 @@ package common
 import (
 	"context"
 	"fmt"
-	"log"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -14,11 +15,11 @@ import (
 
 // Middleware holds all middleware dependencies
 type Middleware struct {
-	logger *log.Logger
+	logger *Logger
 }
 
 // NewMiddleware creates a new middleware instance
-func NewMiddleware(logger *log.Logger) *Middleware {
+func NewMiddleware(logger *Logger) *Middleware {
 	return &Middleware{
 		logger: logger,
 	}
@@ -139,6 +140,37 @@ func (m *Middleware) ErrorHandler() echo.HTTPErrorHandler {
 			if err != nil {
 				m.logger.Printf("Error sending error response: %v", err)
 			}
+		}
+	}
+}
+
+// InternalOnly returns a middleware function that ensures the request is coming from an internal service
+func (m *Middleware) InternalOnly() echo.MiddlewareFunc {
+	internalKey := os.Getenv("INTERNAL_API_KEY")
+	internalCIDR := os.Getenv("INTERNAL_NETWORK_CIDR")
+	_, internalNet, _ := net.ParseCIDR(internalCIDR)
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Check internal API key
+			apiKey := c.Request().Header.Get("X-Internal-Key")
+			if apiKey != internalKey {
+				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid internal API key")
+			}
+
+			// Check if request is from internal network
+			ip := c.RealIP()
+			if strings.Contains(ip, ",") {
+				// If multiple IPs (X-Forwarded-For), take the first one
+				ip = strings.TrimSpace(strings.Split(ip, ",")[0])
+			}
+
+			ipAddr := net.ParseIP(ip)
+			if ipAddr == nil || !internalNet.Contains(ipAddr) {
+				return echo.NewHTTPError(http.StatusUnauthorized, "Request not from internal network")
+			}
+
+			return next(c)
 		}
 	}
 }

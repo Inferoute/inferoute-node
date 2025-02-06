@@ -46,6 +46,9 @@ func (h *Handler) Register(e *echo.Echo) {
 	// Pause management
 	g.PUT("/pause", h.UpdatePauseStatus)
 
+	// HMAC validation
+	g.POST("/validate_hmac", h.ValidateHMAC)
+
 	// Add the new filter route
 	g.GET("/health/providers/filter", h.FilterProviders)
 }
@@ -333,4 +336,43 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, providers)
+}
+
+// @Summary Validate HMAC
+// @Description Validates an HMAC for a provider and returns the associated request data
+// @Tags Provider
+// @Accept json
+// @Produce json
+// @Param request body ValidateHMACRequest true "HMAC to validate"
+// @Success 200 {object} ValidateHMACResponse
+// @Failure 400 {object} common.ErrorResponse
+// @Failure 401 {object} common.ErrorResponse
+// @Failure 500 {object} common.ErrorResponse
+// @Router /api/provider/validate_hmac [post]
+func (h *Handler) ValidateHMAC(c echo.Context) error {
+	var req ValidateHMACRequest
+	if err := c.Bind(&req); err != nil {
+		return common.NewBadRequestError("invalid request body")
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		return common.NewBadRequestError("validation failed")
+	}
+
+	// Get provider ID from auth context
+	providerID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return common.NewUnauthorizedError("provider ID not found in context")
+	}
+
+	response, err := h.service.ValidateHMAC(c.Request().Context(), providerID, req)
+	if err != nil {
+		return err // Service errors are already properly formatted
+	}
+
+	if !response.Valid {
+		return c.JSON(http.StatusUnauthorized, response)
+	}
+
+	return c.JSON(http.StatusOK, response)
 }

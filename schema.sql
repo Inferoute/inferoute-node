@@ -11,6 +11,16 @@ DROP TABLE IF EXISTS balances;
 DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS provider_health_history;
+DROP TABLE IF EXISTS system_settings;
+
+-- Create system_settings table
+CREATE TABLE IF NOT EXISTS system_settings (
+    setting_key STRING PRIMARY KEY,
+    setting_value STRING NOT NULL,
+    description STRING NOT NULL,
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp()
+);
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
@@ -51,6 +61,7 @@ CREATE TABLE IF NOT EXISTS provider_status (
     health_status STRING NOT NULL DEFAULT 'red' CHECK (health_status IN ('green', 'orange', 'red')),
     tier INT NOT NULL DEFAULT 3 CHECK (tier IN (1, 2, 3)),
     paused BOOLEAN NOT NULL DEFAULT FALSE,
+    api_url STRING,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -81,13 +92,14 @@ CREATE TABLE IF NOT EXISTS transactions (
     providers UUID[] NOT NULL,
     hmac STRING UNIQUE NOT NULL,
     model_name STRING NOT NULL,
-    total_input_tokens INTEGER NOT NULL,
-    total_output_tokens INTEGER NOT NULL,
-    tokens_per_second FLOAT NOT NULL,
-    latency INTEGER NOT NULL,
-    consumer_cost DECIMAL(18,8) NOT NULL,
-    provider_earnings DECIMAL(18,8) NOT NULL,
-    status STRING NOT NULL CHECK (status IN ('pending', 'completed', 'failed')),
+    total_input_tokens INTEGER,
+    total_output_tokens INTEGER,
+    tokens_per_second FLOAT,
+    latency INTEGER,
+    consumer_cost DECIMAL(18,8),
+    provider_earnings DECIMAL(18,8),
+    service_fee DECIMAL(18,8),
+    status STRING NOT NULL CHECK (status IN ('pending', 'payment', 'completed', 'failed')),
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
     INDEX (consumer_id),

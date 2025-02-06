@@ -44,10 +44,22 @@ if [ -f bin/provider-health.pid ]; then
     rm bin/provider-health.pid
 fi
 
+if [ -f bin/provider-communication.pid ]; then
+    kill $(cat bin/provider-communication.pid) 2>/dev/null
+    rm bin/provider-communication.pid
+fi
+
+if [ -f bin/payment-processing.pid ]; then
+    kill $(cat bin/payment-processing.pid) 2>/dev/null
+    rm bin/payment-processing.pid
+fi
+
 # Start services
 start_service "provider-management" "bin/provider-management" "cmd/provider-management/main.go"
 start_service "auth-service" "bin/auth-service" "cmd/auth/main.go"
 start_service "provider-health" "bin/provider-health" "cmd/provider-health/main.go"
+start_service "provider-communication" "bin/provider-communication" "cmd/provider-communication/main.go"
+start_service "payment-processing" "bin/payment-processing" "cmd/payment-processing/main.go"
 
 echo -e "${GREEN}Services started successfully!${NC}"
 echo "To stop services, run: kill \$(cat bin/*.pid)"

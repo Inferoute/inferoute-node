@@ -1,7 +1,12 @@
 -- Seed data for testing
 
 -- Clear existing data
-TRUNCATE users, api_keys, provider_status, provider_models, provider_health_history, balances CASCADE;
+TRUNCATE users, api_keys, provider_status, provider_models, provider_health_history, balances, system_settings CASCADE;
+
+-- Initialize system settings
+INSERT INTO system_settings (setting_key, setting_value, description) VALUES
+    ('fee_percentage', '5.0', 'Platform fee percentage taken from each transaction'),
+    ('max_retry_count', '3', 'Maximum number of retries for failed requests');
 
 -- Create test providers with different reliability patterns
 INSERT INTO users (id, type, username) VALUES
@@ -22,13 +27,13 @@ INSERT INTO api_keys (id, user_id, api_key) VALUES
     (gen_random_uuid(), 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'test_key_new');
 
 -- Initialize provider status
-INSERT INTO provider_status (provider_id, is_available, health_status, tier, paused) VALUES
-    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true, 'green', 1, false),   -- Tier 1
-    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', true, 'green', 2, false),   -- Tier 2
-    ('cccccccc-cccc-cccc-cccc-cccccccccccc', true, 'orange', 2, false),  -- Tier 2
-    ('dddddddd-dddd-dddd-dddd-dddddddddddd', true, 'green', 3, false),   -- Tier 3
-    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', true, 'red', 3, false),     -- Tier 3
-    ('ffffffff-ffff-ffff-ffff-ffffffffffff', true, 'green', 3, false);   -- Starting at Tier 3
+INSERT INTO provider_status (provider_id, is_available, health_status, tier, paused, api_url) VALUES
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true, 'green', 1, false, 'https://tier1-provider.example.com/api/compute'),   -- Tier 1
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', true, 'green', 2, false, 'https://tier2a-provider.example.com/api/compute'),   -- Tier 2
+    ('cccccccc-cccc-cccc-cccc-cccccccccccc', true, 'orange', 2, false, 'https://tier2b-provider.example.com/api/compute'),  -- Tier 2
+    ('dddddddd-dddd-dddd-dddd-dddddddddddd', true, 'green', 3, false, 'https://tier3a-provider.example.com/api/compute'),   -- Tier 3
+    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', true, 'red', 3, false, 'https://tier3b-provider.example.com/api/compute'),     -- Tier 3
+    ('ffffffff-ffff-ffff-ffff-ffffffffffff', true, 'green', 3, false, null);   -- Starting at Tier 3, no URL yet
 
 -- Create provider models
 INSERT INTO provider_models (id, provider_id, model_name, service_type, input_price_per_token, output_price_per_token, is_active) VALUES
@@ -133,3 +138,152 @@ SELECT
     floor(random() * 30 + 20)::int,  -- 20-50ms latency
     NOW() - (interval '1 hour' * generate_series(0, 24))  -- Only 24 hours of history
 WHERE random() < 0.99;  -- 99% check success rate for initial period
+
+-- Create some test consumers
+INSERT INTO users (id, type, username) VALUES
+    ('11111111-1111-1111-1111-111111111111', 'consumer', 'test_consumer_a'),
+    ('22222222-2222-2222-2222-222222222222', 'consumer', 'test_consumer_b'),
+    ('33333333-3333-3333-3333-333333333333', 'consumer', 'test_consumer_c');
+
+-- Create API keys for consumers
+INSERT INTO api_keys (id, user_id, api_key) VALUES
+    (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'test_consumer_key_a'),
+    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'test_consumer_key_b'),
+    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'test_consumer_key_c');
+
+-- Add some dummy transactions with different states
+INSERT INTO transactions (
+    id, consumer_id, final_provider_id, providers, hmac, model_name,
+    total_input_tokens, total_output_tokens, tokens_per_second, latency,
+    consumer_cost, provider_earnings, service_fee, status, created_at
+) VALUES
+    -- Completed transactions
+    (
+        gen_random_uuid(),
+        '11111111-1111-1111-1111-111111111111',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        ARRAY['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid],
+        'hmac_test_1',
+        'gpt-4-turbo',
+        100,
+        150,
+        10.5,
+        250,
+        0.0075,
+        0.006,
+        0.0015,
+        'completed',
+        NOW() - interval '1 hour'
+    ),
+    (
+        gen_random_uuid(),
+        '22222222-2222-2222-2222-222222222222',
+        'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        ARRAY['bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid],
+        'hmac_test_2',
+        'gpt-3.5-turbo',
+        200,
+        300,
+        15.2,
+        180,
+        0.0045,
+        0.0035,
+        0.001,
+        'completed',
+        NOW() - interval '30 minutes'
+    ),
+    -- Pending transaction (for HMAC validation testing)
+    (
+        gen_random_uuid(),
+        '33333333-3333-3333-3333-333333333333',
+        'cccccccc-cccc-cccc-cccc-cccccccccccc',
+        ARRAY['cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid],
+        'test_pending_hmac',
+        'mistral-medium',
+        150,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        'pending',
+        NOW() - interval '1 minute'
+    ),
+    -- Failed transaction
+    (
+        gen_random_uuid(),
+        '11111111-1111-1111-1111-111111111111',
+        'dddddddd-dddd-dddd-dddd-dddddddddddd',
+        ARRAY['dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid],
+        'hmac_test_failed',
+        'llama-2',
+        50,
+        0,
+        0,
+        500,
+        0,
+        0,
+        0,
+        'failed',
+        NOW() - interval '15 minutes'
+    ),
+    -- Multi-provider transaction (showing provider selection)
+    (
+        gen_random_uuid(),
+        '22222222-2222-2222-2222-222222222222',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        ARRAY[
+            'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
+            'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid,
+            'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid
+        ],
+        'hmac_test_multi',
+        'claude-3-opus',
+        300,
+        450,
+        20.5,
+        220,
+        0.015,
+        0.012,
+        0.003,
+        'completed',
+        NOW() - interval '5 minutes'
+    ),
+    -- Transaction in payment state (waiting for payment processing)
+    (
+        gen_random_uuid(),
+        '11111111-1111-1111-1111-111111111111',
+        'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        ARRAY['bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid],
+        'hmac_payment_pending',
+        'gpt-3.5-turbo',
+        150,
+        200,
+        NULL,
+        180,
+        NULL,
+        NULL,
+        NULL,
+        'payment',
+        NOW() - interval '30 seconds'
+    )
+    UNION ALL
+    SELECT
+        gen_random_uuid(),
+        '11111111-1111-1111-1111-111111111111'::uuid,
+        'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid,
+        ARRAY['bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid],
+        'hmac_payment_test_' || generate_series::text,
+        'gpt-3.5-turbo',
+        50 + (random() * 450)::int,
+        75 + (random() * 675)::int,
+        NULL::float,
+        180,
+        NULL::decimal,
+        NULL::decimal,
+        NULL::decimal,
+        'payment',
+        NOW() - interval '1 second' * generate_series
+    FROM generate_series(1, 100);
+

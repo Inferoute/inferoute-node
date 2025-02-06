@@ -99,3 +99,16 @@ type ProviderHealthMessage struct {
 	APIKey string                    `json:"api_key"`
 	Models []ProviderHealthPushModel `json:"models"`
 }
+
+// ValidateHMACRequest represents a request to validate an HMAC
+type ValidateHMACRequest struct {
+	HMAC string `json:"hmac" validate:"required"`
+}
+
+// ValidateHMACResponse represents the response to an HMAC validation request
+type ValidateHMACResponse struct {
+	Valid         bool                   `json:"valid"`
+	RequestData   map[string]interface{} `json:"request_data,omitempty"`
+	Error         string                 `json:"error,omitempty"`
+	TransactionID uuid.UUID              `json:"transaction_id,omitempty"`
+}

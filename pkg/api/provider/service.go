@@ -236,3 +236,37 @@ func (s *Service) UpdatePauseStatus(ctx context.Context, providerID uuid.UUID, p
 	s.logger.Info("Updated provider %s pause status to %v", providerID, paused)
 	return &response, nil
 }
+
+// ValidateHMAC validates an HMAC for a provider
+func (s *Service) ValidateHMAC(ctx context.Context, providerID uuid.UUID, req ValidateHMACRequest) (*ValidateHMACResponse, error) {
+	// Query the transaction table to validate the HMAC
+	var transactionID uuid.UUID
+	var modelName string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, model_name
+		FROM transactions 
+		WHERE hmac = $1 
+		AND $2::uuid = ANY(providers)
+		AND status = 'pending'`,
+		req.HMAC,
+		providerID,
+	).Scan(&transactionID, &modelName)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &ValidateHMACResponse{
+				Valid: false,
+				Error: "invalid or expired HMAC",
+			}, nil
+		}
+		return nil, common.ErrInternalServer(fmt.Errorf("error validating HMAC: %w", err))
+	}
+
+	return &ValidateHMACResponse{
+		Valid:         true,
+		TransactionID: transactionID,
+		RequestData: map[string]interface{}{
+			"model_name": modelName,
+		},
+	}, nil
+}
