@@ -85,6 +85,10 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
+	// Add internal security middleware for internal endpoints
+	internalGroup := e.Group("/api/provider/internal")
+	internalGroup.Use(common.InternalOnly())
+
 	// Add auth middleware
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -138,7 +142,7 @@ func main() {
 	go func() {
 		servicePort := cfg.ServerPort // Default to configured port
 		if cfg.IsDevelopment() {
-			servicePort = 8081 // Development port for Provider Management service
+			servicePort = 8082 // Development port for Provider Management service
 		}
 		addr := fmt.Sprintf("%s:%d", cfg.ServerHost, servicePort)
 		logger.Info("Starting provider management service on %s (env: %s)", addr, cfg.Environment)

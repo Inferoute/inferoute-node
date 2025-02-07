@@ -28,6 +28,10 @@ type Config struct {
 
 	AuthHMACSecret    string `mapstructure:"auth_hmacsecret"`
 	AuthTokenDuration int    `mapstructure:"auth_tokenduration"`
+
+	// Internal Security Configuration
+	InternalAPIKey      string `mapstructure:"internal_api_key"`
+	InternalNetworkCIDR string `mapstructure:"internal_network_cidr"`
 }
 
 // LoadConfig reads configuration from the .env file and environment variables.

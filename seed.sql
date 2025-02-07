@@ -36,33 +36,33 @@ INSERT INTO provider_status (provider_id, is_available, health_status, tier, pau
     ('ffffffff-ffff-ffff-ffff-ffffffffffff', true, 'green', 3, false, null);   -- Starting at Tier 3, no URL yet
 
 -- Create provider models
-INSERT INTO provider_models (id, provider_id, model_name, service_type, input_price_per_token, output_price_per_token, is_active) VALUES
+INSERT INTO provider_models (id, provider_id, model_name, service_type, input_price_tokens, output_price_tokens, is_active) VALUES
     -- Tier 1 Provider (Premium models)
-    (gen_random_uuid(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'gpt-4-turbo', 'ollama', 0.01, 0.03, true),
-    (gen_random_uuid(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'claude-3-opus', 'ollama', 0.015, 0.035, true),
-    (gen_random_uuid(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'gemini-pro', 'ollama', 0.008, 0.025, true),
+    (gen_random_uuid(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'gpt-4-turbo', 'ollama', 0.15, 0.3, true),
+    (gen_random_uuid(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'claude-3-opus', 'ollama', 0.15, 0.35, true),
+    (gen_random_uuid(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'gemini-pro', 'ollama', 0.8, 0.25, true),
 
     -- Tier 2 Provider A (Mix of models)
-    (gen_random_uuid(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'gpt-3.5-turbo', 'ollama', 0.005, 0.015, true),
-    (gen_random_uuid(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'claude-2', 'ollama', 0.006, 0.018, true),
-    (gen_random_uuid(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'mistral-medium', 'ollama', 0.004, 0.012, true),
+    (gen_random_uuid(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'gpt-3.5-turbo', 'ollama', 0.5, 0.15, true),
+    (gen_random_uuid(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'claude-2', 'ollama', 0.6, 0.18, true),
+    (gen_random_uuid(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'mistral-medium', 'ollama', 0.4, 0.12, true),
 
     -- Tier 2 Provider B
-    (gen_random_uuid(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'gpt-3.5-turbo', 'ollama', 0.0045, 0.014, true),
-    (gen_random_uuid(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'mistral-small', 'ollama', 0.003, 0.009, true),
-    (gen_random_uuid(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama-2', 'ollama', 0.002, 0.006, true),
+    (gen_random_uuid(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'deepseek-r1:8b', 'ollama', 0.45, 0.14, true),
+    (gen_random_uuid(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'mistral-small', 'ollama', 0.3, 0.9, true),
+    (gen_random_uuid(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama-2', 'ollama', 0.2, 0.6, true),
 
     -- Tier 3 Provider A (Basic models)
-    (gen_random_uuid(), 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'mistral-small', 'ollama', 0.002, 0.006, true),
-    (gen_random_uuid(), 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama-2', 'ollama', 0.0015, 0.0045, true),
+    (gen_random_uuid(), 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'deepseek-r1:32b', 'ollama', 0.2, 0.6, true),
+    (gen_random_uuid(), 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama-2', 'ollama', 0.15, 0.45, true),
 
     -- Tier 3 Provider B
-    (gen_random_uuid(), 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'mistral-small', 'ollama', 0.0018, 0.005, true),
-    (gen_random_uuid(), 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'llama-2', 'ollama', 0.001, 0.003, true),
+    (gen_random_uuid(), 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'mistral-small', 'ollama', 0.18, 0.5, true),
+    (gen_random_uuid(), 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'llama-2', 'ollama', 0.1, 0.3, true),
 
     -- New Provider (Starting with basic models)
-    (gen_random_uuid(), 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'mistral-small', 'ollama', 0.002, 0.006, true),
-    (gen_random_uuid(), 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'llama-2', 'ollama', 0.0015, 0.0045, true);
+    (gen_random_uuid(), 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'mistral-small', 'ollama', 0.2, 0.6, true),
+    (gen_random_uuid(), 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'llama-2', 'ollama', 0.15, 0.45, true);
 
 -- Create health history for the last 30 days
 -- Tier 1 Provider (99.9% uptime)
@@ -155,7 +155,8 @@ INSERT INTO api_keys (id, user_id, api_key) VALUES
 INSERT INTO transactions (
     id, consumer_id, final_provider_id, providers, hmac, model_name,
     total_input_tokens, total_output_tokens, tokens_per_second, latency,
-    consumer_cost, provider_earnings, service_fee, status, created_at
+    consumer_cost, provider_earnings, service_fee, status, created_at,
+    input_price_tokens, output_price_tokens
 ) VALUES
     -- Completed transactions
     (
@@ -173,7 +174,9 @@ INSERT INTO transactions (
         0.006,
         0.0015,
         'completed',
-        NOW() - interval '1 hour'
+        NOW() - interval '1 hour',
+        0.15,  -- $0.15 per million input tokens (from provider_models)
+        0.30   -- $0.30 per million output tokens (from provider_models)
     ),
     (
         gen_random_uuid(),
@@ -190,7 +193,9 @@ INSERT INTO transactions (
         0.0035,
         0.001,
         'completed',
-        NOW() - interval '30 minutes'
+        NOW() - interval '30 minutes',
+        0.05,  -- $0.05 per million input tokens
+        0.15   -- $0.15 per million output tokens
     ),
     -- Pending transaction (for HMAC validation testing)
     (
@@ -208,7 +213,9 @@ INSERT INTO transactions (
         0,
         0,
         'pending',
-        NOW() - interval '1 minute'
+        NOW() - interval '1 minute',
+        0.04,  -- $0.04 per million input tokens
+        0.12   -- $0.12 per million output tokens
     ),
     -- Failed transaction
     (
@@ -226,7 +233,9 @@ INSERT INTO transactions (
         0,
         0,
         'failed',
-        NOW() - interval '15 minutes'
+        NOW() - interval '15 minutes',
+        0.15,  -- $0.15 per million input tokens
+        0.45   -- $0.45 per million output tokens
     ),
     -- Multi-provider transaction (showing provider selection)
     (
@@ -248,7 +257,9 @@ INSERT INTO transactions (
         0.012,
         0.003,
         'completed',
-        NOW() - interval '5 minutes'
+        NOW() - interval '5 minutes',
+        0.15,  -- $0.15 per million input tokens
+        0.35   -- $0.35 per million output tokens
     ),
     -- Transaction in payment state (waiting for payment processing)
     (
@@ -266,7 +277,9 @@ INSERT INTO transactions (
         NULL,
         NULL,
         'payment',
-        NOW() - interval '30 seconds'
+        NOW() - interval '30 seconds',
+        0.05,  -- $0.05 per million input tokens
+        0.15   -- $0.15 per million output tokens
     )
     UNION ALL
     SELECT
@@ -284,6 +297,8 @@ INSERT INTO transactions (
         NULL::decimal,
         NULL::decimal,
         'payment',
-        NOW() - interval '1 second' * generate_series
+        NOW() - interval '1 second' * generate_series,
+        0.05,  -- $0.05 per million input tokens
+        0.15   -- $0.15 per million output tokens
     FROM generate_series(1, 100);
 

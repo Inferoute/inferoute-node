@@ -17,15 +17,15 @@ const (
 
 // ProviderModel represents a model configuration for a provider
 type ProviderModel struct {
-	ID                  uuid.UUID   `json:"id"`
-	ProviderID          uuid.UUID   `json:"provider_id"`
-	ModelName           string      `json:"model_name"`
-	ServiceType         ServiceType `json:"service_type"`
-	InputPricePerToken  float64     `json:"input_price_per_token"`
-	OutputPricePerToken float64     `json:"output_price_per_token"`
-	IsActive            bool        `json:"is_active"`
-	CreatedAt           time.Time   `json:"created_at"`
-	UpdatedAt           time.Time   `json:"updated_at"`
+	ID                uuid.UUID   `json:"id"`
+	ProviderID        uuid.UUID   `json:"provider_id"`
+	ModelName         string      `json:"model_name"`
+	ServiceType       ServiceType `json:"service_type"`
+	InputPriceTokens  float64     `json:"input_price_tokens"`
+	OutputPriceTokens float64     `json:"output_price_tokens"`
+	IsActive          bool        `json:"is_active"`
+	CreatedAt         time.Time   `json:"created_at"`
+	UpdatedAt         time.Time   `json:"updated_at"`
 }
 
 // ProviderStatus represents the current status of a provider
@@ -41,18 +41,18 @@ type ProviderStatus struct {
 
 // AddModelRequest represents a request to add a new model for a provider
 type AddModelRequest struct {
-	ModelName           string      `json:"model_name" validate:"required"`
-	ServiceType         ServiceType `json:"service_type" validate:"required,oneof=ollama exolabs llama_cpp"`
-	InputPricePerToken  float64     `json:"input_price_per_token" validate:"required,min=0"`
-	OutputPricePerToken float64     `json:"output_price_per_token" validate:"required,min=0"`
+	ModelName         string      `json:"model_name" validate:"required"`
+	ServiceType       ServiceType `json:"service_type" validate:"required,oneof=ollama exolabs llama_cpp"`
+	InputPriceTokens  float64     `json:"input_price_tokens" validate:"required,min=0"`
+	OutputPriceTokens float64     `json:"output_price_tokens" validate:"required,min=0"`
 }
 
 // UpdateModelRequest represents the request to update a model
 type UpdateModelRequest struct {
-	ModelName           string  `json:"model_name" validate:"required"`
-	ServiceType         string  `json:"service_type" validate:"required,oneof=ollama exolabs llama_cpp"`
-	InputPricePerToken  float64 `json:"input_price_per_token" validate:"required,gte=0"`
-	OutputPricePerToken float64 `json:"output_price_per_token" validate:"required,gte=0"`
+	ModelName         string  `json:"model_name" validate:"required"`
+	ServiceType       string  `json:"service_type" validate:"required,oneof=ollama exolabs llama_cpp"`
+	InputPriceTokens  float64 `json:"input_price_tokens" validate:"required,gte=0"`
+	OutputPriceTokens float64 `json:"output_price_tokens" validate:"required,gte=0"`
 }
 
 // ListModelsResponse represents the response for listing provider models

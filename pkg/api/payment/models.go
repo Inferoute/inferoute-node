@@ -12,6 +12,8 @@ type PaymentMessage struct {
 	ModelName         string    `json:"model_name"`
 	TotalInputTokens  int       `json:"total_input_tokens"`
 	TotalOutputTokens int       `json:"total_output_tokens"`
+	InputPriceTokens  float64   `json:"input_price_tokens"`
+	OutputPriceTokens float64   `json:"output_price_tokens"`
 	Latency           int64     `json:"latency"`
 }
 

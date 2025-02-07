@@ -58,25 +58,25 @@ func (s *Service) AddModel(ctx context.Context, providerID uuid.UUID, req AddMod
 
 		// Create model
 		model = ProviderModel{
-			ID:                  uuid.New(),
-			ProviderID:          providerID,
-			ModelName:           req.ModelName,
-			ServiceType:         req.ServiceType,
-			InputPricePerToken:  req.InputPricePerToken,
-			OutputPricePerToken: req.OutputPricePerToken,
-			IsActive:            true,
-			CreatedAt:           time.Now(),
-			UpdatedAt:           time.Now(),
+			ID:                uuid.New(),
+			ProviderID:        providerID,
+			ModelName:         req.ModelName,
+			ServiceType:       req.ServiceType,
+			InputPriceTokens:  req.InputPriceTokens,
+			OutputPriceTokens: req.OutputPriceTokens,
+			IsActive:          true,
+			CreatedAt:         time.Now(),
+			UpdatedAt:         time.Now(),
 		}
 
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO provider_models (
 				id, provider_id, model_name, service_type,
-				input_price_per_token, output_price_per_token,
+				input_price_tokens, output_price_tokens,
 				is_active, created_at, updated_at
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 			model.ID, model.ProviderID, model.ModelName, model.ServiceType,
-			model.InputPricePerToken, model.OutputPricePerToken,
+			model.InputPriceTokens, model.OutputPriceTokens,
 			model.IsActive, model.CreatedAt, model.UpdatedAt,
 		)
 		return err
@@ -103,8 +103,8 @@ func (s *Service) ListModels(ctx context.Context, providerID uuid.UUID) (*ListMo
 					'provider_id', pm.provider_id,
 					'model_name', pm.model_name,
 					'service_type', pm.service_type,
-					'input_price_per_token', pm.input_price_per_token,
-					'output_price_per_token', pm.output_price_per_token,
+					'input_price_tokens', pm.input_price_tokens,
+					'output_price_tokens', pm.output_price_tokens,
 					'is_active', pm.is_active,
 					'created_at', pm.created_at AT TIME ZONE 'UTC',
 					'updated_at', pm.updated_at AT TIME ZONE 'UTC'
@@ -138,18 +138,18 @@ func (s *Service) UpdateModel(ctx context.Context, providerID, modelID uuid.UUID
 		UPDATE provider_models 
 		SET model_name = $1, 
 			service_type = $2,
-			input_price_per_token = $3, 
-			output_price_per_token = $4,
+			input_price_tokens = $3, 
+			output_price_tokens = $4,
 			updated_at = NOW()
 		WHERE id = $5 AND provider_id = $6
-		RETURNING id, provider_id, model_name, service_type, input_price_per_token, output_price_per_token, is_active, created_at, updated_at`
+		RETURNING id, provider_id, model_name, service_type, input_price_tokens, output_price_tokens, is_active, created_at, updated_at`
 
 	model := &ProviderModel{}
 	err := s.db.QueryRowContext(ctx, query,
 		req.ModelName,
 		req.ServiceType,
-		req.InputPricePerToken,
-		req.OutputPricePerToken,
+		req.InputPriceTokens,
+		req.OutputPriceTokens,
 		modelID,
 		providerID,
 	).Scan(
@@ -157,8 +157,8 @@ func (s *Service) UpdateModel(ctx context.Context, providerID, modelID uuid.UUID
 		&model.ProviderID,
 		&model.ModelName,
 		&model.ServiceType,
-		&model.InputPricePerToken,
-		&model.OutputPricePerToken,
+		&model.InputPriceTokens,
+		&model.OutputPriceTokens,
 		&model.IsActive,
 		&model.CreatedAt,
 		&model.UpdatedAt,

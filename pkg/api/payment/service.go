@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/google/uuid"
 	"github.com/sentnl/inferoute-node/internal/db"
 	"github.com/sentnl/inferoute-node/pkg/common"
 	"github.com/sentnl/inferoute-node/pkg/rabbitmq"
@@ -47,7 +48,7 @@ func (s *Service) StartPaymentProcessor(ctx context.Context) error {
 			}
 
 			s.logger.Info("Processing payment for HMAC: %s", paymentMsg.HMAC)
-			if err := s.processPayment(ctx, paymentMsg); err != nil {
+			if err := s.processPayment(&paymentMsg); err != nil {
 				s.logger.Error("Failed to process payment: %v", err)
 				return err
 			}
@@ -84,85 +85,89 @@ func (s *Service) getFeePercentage(ctx context.Context, tx *sql.Tx) (float64, er
 }
 
 // processPayment handles the payment processing logic
-func (s *Service) processPayment(ctx context.Context, msg PaymentMessage) error {
-	return s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
-		// Get current fee percentage
-		feePercentage, err := s.getFeePercentage(ctx, tx)
+func (s *Service) processPayment(msg *PaymentMessage) error {
+	// Start a transaction
+	var feePercentage float64
+	err := s.db.ExecuteTx(context.Background(), func(tx *sql.Tx) error {
+		var err error
+		feePercentage, err = s.getFeePercentage(context.Background(), tx)
 		if err != nil {
-			s.logger.Error("Error getting fee percentage: %v", err)
-			feePercentage = defaultServiceFeePercentage
+			return fmt.Errorf("failed to get fee percentage: %w", err)
 		}
-
-		// Get provider's pricing for the model
-		var inputPrice, outputPrice float64
-		err = tx.QueryRowContext(ctx,
-			`SELECT input_price_per_token, output_price_per_token 
-			FROM provider_models 
-			WHERE provider_id = $1 AND model_name = $2`,
-			msg.ProviderID,
-			msg.ModelName,
-		).Scan(&inputPrice, &outputPrice)
-		if err != nil {
-			return fmt.Errorf("error getting provider pricing: %w", err)
-		}
-
-		// Calculate costs
-		inputCost := float64(msg.TotalInputTokens) * inputPrice
-		outputCost := float64(msg.TotalOutputTokens) * outputPrice
-		totalCost := inputCost + outputCost
-		serviceFee := totalCost * feePercentage
-		providerEarnings := totalCost - serviceFee
-
-		// Calculate tokens per second
-		tokensPerSecond := float64(msg.TotalOutputTokens) / (float64(msg.Latency) / 1000.0)
-
-		// Update transaction record
-		_, err = tx.ExecContext(ctx,
-			`UPDATE transactions 
-			SET tokens_per_second = $1,
-				consumer_cost = $2,
-				provider_earnings = $3,
-				service_fee = $4,
-				status = 'completed',
-				updated_at = NOW()
-			WHERE hmac = $5`,
-			tokensPerSecond,
-			totalCost,
-			providerEarnings,
-			serviceFee,
-			msg.HMAC,
-		)
-		if err != nil {
-			return fmt.Errorf("error updating transaction: %w", err)
-		}
-
-		// Update balances
-		// Debit consumer
-		_, err = tx.ExecContext(ctx,
-			`UPDATE balances 
-			SET available_amount = available_amount - $1,
-				updated_at = NOW()
-			WHERE user_id = $2`,
-			totalCost,
-			msg.ConsumerID,
-		)
-		if err != nil {
-			return fmt.Errorf("error debiting consumer: %w", err)
-		}
-
-		// Credit provider
-		_, err = tx.ExecContext(ctx,
-			`UPDATE balances 
-			SET available_amount = available_amount + $1,
-				updated_at = NOW()
-			WHERE user_id = $2`,
-			providerEarnings,
-			msg.ProviderID,
-		)
-		if err != nil {
-			return fmt.Errorf("error crediting provider: %w", err)
-		}
-
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// Calculate tokens per second
+	tokensPerSecond := float64(msg.TotalOutputTokens) / float64(msg.Latency)
+
+	// Calculate costs using prices from the message (per million tokens)
+	inputCost := float64(msg.TotalInputTokens) * (msg.InputPriceTokens / 1_000_000.0)
+	outputCost := float64(msg.TotalOutputTokens) * (msg.OutputPriceTokens / 1_000_000.0)
+	totalCost := inputCost + outputCost
+
+	// Calculate service fee using the percentage from the database
+	serviceFee := totalCost * feePercentage
+	providerEarnings := totalCost - serviceFee
+
+	// Update transaction with payment details
+	query := `
+		UPDATE transactions 
+		SET tokens_per_second = $1,
+			consumer_cost = $2,
+			provider_earnings = $3,
+			service_fee = $4,
+			status = 'completed'
+		WHERE hmac = $5
+	`
+
+	if _, err := s.db.Exec(
+		query,
+		tokensPerSecond,
+		totalCost,
+		providerEarnings,
+		serviceFee,
+		msg.HMAC,
+	); err != nil {
+		return fmt.Errorf("failed to update transaction: %w", err)
+	}
+
+	// Process the actual payments
+	if err := s.processConsumerDebit(msg.ConsumerID, totalCost); err != nil {
+		return fmt.Errorf("failed to process consumer debit: %w", err)
+	}
+
+	if err := s.processProviderCredit(msg.ProviderID, providerEarnings); err != nil {
+		return fmt.Errorf("failed to process provider credit: %w", err)
+	}
+
+	return nil
+}
+
+// processConsumerDebit handles the debiting of funds from the consumer's balance
+func (s *Service) processConsumerDebit(consumerID uuid.UUID, amount float64) error {
+	_, err := s.db.Exec(
+		`UPDATE balances 
+		SET available_amount = available_amount - $1,
+			updated_at = NOW()
+		WHERE user_id = $2`,
+		amount,
+		consumerID,
+	)
+	return err
+}
+
+// processProviderCredit handles the crediting of funds to the provider's balance
+func (s *Service) processProviderCredit(providerID uuid.UUID, amount float64) error {
+	_, err := s.db.Exec(
+		`UPDATE balances 
+		SET available_amount = available_amount + $1,
+			updated_at = NOW()
+		WHERE user_id = $2`,
+		amount,
+		providerID,
+	)
+	return err
 }

@@ -297,13 +297,13 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 			hp.tier,
 			hp.health_status,
 			hp.latency_ms,
-			pm.input_price_per_token,
-			pm.output_price_per_token
+			pm.input_price_tokens,
+			pm.output_price_tokens
 		FROM healthy_providers hp
 		JOIN provider_models pm ON pm.provider_id = hp.provider_id
 		WHERE pm.model_name = $2
-		AND pm.input_price_per_token <= $3
-		AND pm.output_price_per_token <= $3
+		AND pm.input_price_tokens <= $3
+		AND pm.output_price_tokens <= $3
 		ORDER BY hp.tier ASC, hp.latency_ms ASC;
 	`
 

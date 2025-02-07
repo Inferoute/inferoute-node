@@ -58,12 +58,12 @@ type GetHealthyNodesRequest struct {
 
 // HealthyNode represents a healthy provider node
 type HealthyNode struct {
-	ProviderID          uuid.UUID `json:"provider_id"`
-	Username            string    `json:"username"`
-	InputPricePerToken  float64   `json:"input_price_per_token"`
-	OutputPricePerToken float64   `json:"output_price_per_token"`
-	Tier                int       `json:"tier"`
-	HealthStatus        string    `json:"health_status"`
+	ProviderID        uuid.UUID `json:"provider_id"`
+	Username          string    `json:"username"`
+	InputPriceTokens  float64   `json:"input_price_tokens"`
+	OutputPriceTokens float64   `json:"output_price_tokens"`
+	Tier              int       `json:"tier"`
+	HealthStatus      string    `json:"health_status"`
 }
 
 // GetHealthyNodesResponse represents the response for getting healthy nodes

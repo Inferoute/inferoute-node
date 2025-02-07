@@ -33,18 +33,19 @@ func NewHandler(sqlDB *sql.DB, logger *common.Logger) *Handler {
 func (h *Handler) Register(e *echo.Echo) {
 	g := e.Group("/api/health")
 
-	// Get healthy nodes
-	g.GET("/nodes/healthy", h.GetHealthyNodes)
+	// Get healthy providers
+	g.GET("/providers/healthy", h.GetHealthyNodes)
 
 	// Get provider health status
 	g.GET("/provider/:provider_id", h.GetProviderHealth)
 
-	// Filter providers
+	// Filter for Healthy providers
 	g.GET("/providers/filter", h.FilterProviders)
 
-	// Manual triggers
-	g.POST("/providers/update-tiers", h.TriggerUpdateTiers)
-	g.POST("/providers/check-stale", h.TriggerCheckStale)
+	// Manual triggers - internal only
+	internalGroup := g.Group("/providers", common.InternalOnly())
+	internalGroup.POST("/update-tiers", h.TriggerUpdateTiers)
+	internalGroup.POST("/check-stale", h.TriggerCheckStale)
 }
 
 // @Summary Get all healthy nodes
@@ -53,7 +54,7 @@ func (h *Handler) Register(e *echo.Echo) {
 // @Produce json
 // @Success 200 {array} HealthyNodeResponse
 // @Failure 500 {object} common.ErrorResponse
-// @Router /api/health/nodes/healthy [get]
+// @Router /api/health/providers/healthy [get]
 func (h *Handler) GetHealthyNodes(c echo.Context) error {
 	query := `
 		SELECT 
@@ -233,13 +234,13 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 			hp.tier,
 			hp.health_status,
 			hp.latency_ms,
-			pm.input_price_per_token,
-			pm.output_price_per_token
+			pm.input_price_tokens,
+			pm.output_price_tokens
 		FROM healthy_providers hp
 		JOIN provider_models pm ON pm.provider_id = hp.provider_id
 		WHERE pm.model_name = $2
-		AND pm.input_price_per_token <= $3
-		AND pm.output_price_per_token <= $3
+		AND pm.input_price_tokens <= $3
+		AND pm.output_price_tokens <= $3
 		ORDER BY hp.tier ASC, hp.latency_ms ASC;
 	`
 

@@ -28,7 +28,12 @@ http://localhost:15672
 FROm DEV to PROD:
 
 
+### Test Payment processor speed to process:
+1. run start_services.sh
+2. run test_payment_processor.go
 
+go build -o bin/test_payment_processor test_payment_processor.go
+./bin/test_payment_processor
 
 ### Client for providers
 

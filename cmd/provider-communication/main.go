@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/sentnl/inferoute-node/internal/config"
@@ -68,50 +66,7 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
-
-	// Add auth middleware for provider endpoints
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			// Skip auth for send_requests endpoint (used by orchestrator)
-			if c.Path() == "/api/provider-comms/send_requests" {
-				return next(c)
-			}
-
-			auth := c.Request().Header.Get("Authorization")
-			if auth == "" {
-				return common.ErrUnauthorized(fmt.Errorf("missing authorization header"))
-			}
-
-			// Extract API key from Bearer token
-			parts := strings.Split(auth, " ")
-			if len(parts) != 2 || parts[0] != "Bearer" {
-				return common.ErrUnauthorized(fmt.Errorf("invalid authorization format"))
-			}
-
-			apiKey := strings.TrimSpace(parts[1])
-			if apiKey == "" {
-				return common.ErrUnauthorized(fmt.Errorf("empty API key"))
-			}
-
-			// Query the database to get the provider associated with this API key
-			var userID uuid.UUID
-			var username string
-			query := `SELECT u.id, u.username 
-				FROM users u
-				JOIN api_keys ak ON u.id = ak.user_id
-				WHERE ak.api_key = $1 AND u.type = 'provider' AND ak.is_active = true`
-
-			err := database.QueryRowContext(c.Request().Context(), query, apiKey).Scan(&userID, &username)
-			if err != nil {
-				return common.ErrUnauthorized(fmt.Errorf("invalid API key"))
-			}
-
-			// Set user info in context
-			c.Set("user_id", userID)
-			c.Set("username", username)
-			return next(c)
-		}
-	})
+	e.Use(common.InternalOnly()) // Protect all routes as they're only used by internal services
 
 	// Initialize handler
 	handler := provider_comm.NewHandler(database, logger)

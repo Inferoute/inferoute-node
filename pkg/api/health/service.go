@@ -293,8 +293,8 @@ func (s *Service) GetHealthyNodes(ctx context.Context, req GetHealthyNodesReques
 		`SELECT 
 			u.id,
 			u.username,
-			pm.input_price_per_token,
-			pm.output_price_per_token,
+			pm.input_price_tokens,
+			pm.output_price_tokens,
 			ps.tier,
 			ps.health_status
 		FROM users u
@@ -305,8 +305,8 @@ func (s *Service) GetHealthyNodes(ctx context.Context, req GetHealthyNodesReques
 		AND ps.is_available = true
 		AND ps.paused = false
 		AND ps.tier <= $2
-		AND pm.input_price_per_token <= $3
-		AND pm.output_price_per_token <= $3
+		AND pm.input_price_tokens <= $3
+		AND pm.output_price_tokens <= $3
 		ORDER BY ps.tier ASC, ps.last_health_check DESC`,
 		req.ModelName,
 		req.Tier,
@@ -323,8 +323,8 @@ func (s *Service) GetHealthyNodes(ctx context.Context, req GetHealthyNodesReques
 		if err := rows.Scan(
 			&node.ProviderID,
 			&node.Username,
-			&node.InputPricePerToken,
-			&node.OutputPricePerToken,
+			&node.InputPriceTokens,
+			&node.OutputPriceTokens,
 			&node.Tier,
 			&node.HealthStatus,
 		); err != nil {

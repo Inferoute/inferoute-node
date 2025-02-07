@@ -60,6 +60,7 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.Logger())
 	e.Use(middleware.CORS())
+	e.Use(common.InternalOnly())
 
 	// Initialize services and handlers
 	authService := auth.NewService(database, logger)
@@ -85,7 +86,7 @@ func main() {
 	// Start server
 	servicePort := cfg.ServerPort // Default to configured port
 	if cfg.IsDevelopment() {
-		servicePort = 8080 // Development port for Auth service
+		servicePort = 8081 // Development port for Auth service
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.ServerHost, servicePort)
 	logger.Info("Starting Auth service on %s (env: %s)", addr, cfg.Environment)

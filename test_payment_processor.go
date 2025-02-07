@@ -61,7 +61,8 @@ func main() {
 	rows, err := db.QueryContext(context.Background(),
 		`SELECT 
 			consumer_id, final_provider_id, hmac, model_name,
-			total_input_tokens, total_output_tokens, latency
+			total_input_tokens, total_output_tokens, latency,
+			input_price_tokens, output_price_tokens
 		FROM transactions 
 		WHERE status = 'payment'
 		ORDER BY created_at ASC`)
@@ -85,6 +86,8 @@ func main() {
 			&msg.TotalInputTokens,
 			&msg.TotalOutputTokens,
 			&msg.Latency,
+			&msg.InputPriceTokens,
+			&msg.OutputPriceTokens,
 		)
 		if err != nil {
 			logger.Error("Failed to scan row: %v", err)

@@ -34,30 +34,35 @@ The main orchestrator of our application.
 
 	- Receives requests from Nginx.
 
-	- Invokes the Authentication Service to validate the API key and check for sufficient funds using auth microservice -  /api/auth/validate
+	- Invokes the Authentication Service to validate the API key and check for sufficient funds using auth microservice -  /api/auth/validate  (requires INTERNAL_API_KEY). Also at this point we should check what the maximum a user is willing to pay for their inference for input and output, if a specific price is set for the requested model otherwise use the global settings.
+		- So we need a new table called consumers where such settings can be stored. Links to the users table. Allows user to set their maximum price per 1,000,0000 input tokens and per 1,000,000 output tokens.
+		- We also need a consumers_model table where user can set their minimum and maximum price per 1,000,000 input tokens and per 1,000,000 output tokens for a specific model. So by default the consumer will use the global settings but can override them for a specific model. 
+	
+	- Generates HMAC(s) for the request using common/hmac.go
 
-    - Generates HMAC(s) for the request using common/hmac.go
+	- Queries the Provider Management Service for a list of healthy providers using the model name and the maximum price per 1,000,000 input tokens and per 1,000,000 output tokens. So essentiallly we only spit out providers where the price is eqaual or lower to our amount. The consumer is always charged at the price of the provider they are connected to. 
 
-    - Creates a transaction record in the database - initial transaction status is pending. 
+	- We then need a little function that works out the best provider for the consumer based on price and latency. 
+
+    - Creates a transaction record in the database - initial transaction status is pending. Record the input and output price per 1,000,000 tokens, provider id, model name and HMAC.
 
     - Initiates a holding deposit (deduct $1) for valid requests using auth microservice - /api/auth/hold
 
-	- Queries the Provider Management Service for a list of healthy providers.
-
-	- Calls the Provider Communication Service to dispatch the request (with HMAC) to a set of providers.
+	- Calls the Provider Communication Service to dispatch the request (with HMAC) to the provider. We send provider_url, request data, model name, HMAC to the provider communication service via /api/provider_comms/send_requests
 
 	- Receives the winning provider's response from the Provider Communication Service.
 
-	- Forwards that response back to the Nginx proxy.
+	- Forwards that response back to the Nginx proxy which should then send it back to the consumer.
 
-	- Initiates a release deposit using auth microservice - /api/auth/hold
+	- Initiates a release deposit using auth microservice - /api/auth/release
 
 	- Updates the transaction record in the database with the  total input tokens, total output tokens, latency and changes status to payment. This is so the payment processing service can pick it up. 
 	also if anyhtig gets missed we can double check it using payment processing service. 
 
 	- Publishes payment-related details to RabbitMQ for asynchronous processing by the Payment Processing Service. 
 
-## 3.  Authentication Service (Go) - DONE !!!!
+
+## 3.  Authentication Service (Go) - DONE !!!!  (requires INTERNAL_API_KEY so only authorized internal go services can use these APIs)
 
 - **Role:** VManages user authentication, API key validation, and deposit handling. Ensures users have sufficient balance for operations and provides deposit hold/release functionality for transaction safety.
 
@@ -147,6 +152,7 @@ POST /api/auth/release
        - Original request data (if valid)
        - Transaction ID (if valid)
 
+Create abnother API to allow providers to change their URL endpoint (container willd o this autopmactially)
 
 ## 5.  Provider Communication Service (Go) - DONE!!!!
 
@@ -159,8 +165,7 @@ POST /api/auth/release
   - Runs on port 8083 in development mode
 
 - **Authentication:**
-  - Skips authentication for `/api/send_requests` (used by orchestrator)
-  - Requires provider API key in Bearer token for `/api/validate_hmac`
+  - Skips authentication for `/api/provider_comms/send_requests` (used by orchestrator and requires INTERNAL_API_KEY)
   - Validates API keys against the database in real-time
 
 - **Key Components:**
@@ -172,12 +177,6 @@ POST /api/auth/release
      - Measures and tracks latency
      - Returns provider responses to orchestrator
 
-  2. **HMAC Validator:**
-     - Validates HMACs against the transaction table
-     - Ensures HMAC is valid and transaction is pending
-     - Returns associated request data to providers
-     - Prevents replay attacks by checking transaction status
-
   3. **Error Handling:**
      - Custom error types for different scenarios
      - Proper HTTP status codes for each error case
@@ -187,10 +186,10 @@ POST /api/auth/release
 
   1. **POST /api/send_requests**
      - Used by orchestrator to send requests to providers
-     - No authentication required (internal endpoint)
      - Payload includes:
        - Provider ID
        - HMAC
+	   - provider_url
        - Request data
        - Model name
      - Returns:
@@ -198,21 +197,12 @@ POST /api/auth/release
        - Provider response data
        - Latency metrics
 
-  2. **POST /api/validate_hmac**
-     - Used by providers to validate HMACs
-     - Requires provider API key authentication
-     - Payload:
-       - HMAC to validate
-     - Returns:
-       - Validation status
-       - Original request data (if valid)
-       - Transaction ID (if valid)
 
 - **Flow:**
-  1. Orchestrator sends request to `/api/send_requests`
+  1. Orchestrator sends request to `/api/provider_comms/send_requests`
   2. Service validates provider and prepares request
   3. Request is sent to provider's endpoint
-  4. Provider validates HMAC using `/api/validate_hmac`
+  4. Provider validates HMAC using `/api/provider/validate_hmac`
   5. Provider processes request and sends response
   6. Service forwards response back to orchestrator
 
@@ -303,13 +293,13 @@ is_available field in provider_status is set to false when health status is red
 
 Note: The periodic checking of stale providers and tier updates has been moved to the Scheduling Service, which calls the respective APIs at configured intervals.
 
- - GET /api/health/nodes/healthy:  Get a list of healthy nodes (nodes that are green)
- - GET /api/health/provider/:provider_id: Get the health status of a specific provider
+ - GET /api/health/providers/healthy:  Get a list of healthy providers (providers that are green)
  - GET /api/health/providers/filter: Get a list of healthy providers offering a specific model within cost constraints	
- - POST /api/health/providers/update-tiers: Manually triggers the tier update process for all providers based on their health history
- - POST /api/health/providers/check-stale - Manually triggers the check for stale providers that haven't sent health updates recently. 
+ - GET /api/health/provider/:provider_id: Get the health status of a specific provider
+ - POST /api/health/providers/update-tiers: Manually triggers the tier update process for all providers based on their health history (protected by INTERNAL_API_KEY)
+ - POST /api/health/providers/check-stale - Manually triggers the check for stale providers that haven't sent health updates recently. (protected by INTERNAL_API_KEY)
 
-
+We will need some Cloud cron thing to run the check for stale providers and update tiers from externally.
 
 
 ## 9.  CockroachDB - DONE!!!!
@@ -366,6 +356,22 @@ Rightbrain Petes new company uses fern and the documentation looks so good.
 Use fern - book a demo.
 https://www.buildwithfern.com
 
+
+
+################ Initial Account creation process
+
+
+Providers
+
+
+
+### Consumers 
+
+	1. Logs in using google, github etc..
+	2. We create a consumer row in the database.
+	3. User is send to welcome page where he is asked for min and max price per 1,000,000 input tokens and per 1,000,000 output tokens. (explain this is a global setting and can be overridden for a specific model)
+	4. User clicks next and is sent to a page where he can create an API key.
+	5. Shows them example of how to use the service (basically worsk out of the box like OpenAI comopatible API)
 
 # Revised Request-Response Workflow
 

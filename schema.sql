@@ -75,8 +75,8 @@ CREATE TABLE IF NOT EXISTS provider_models (
     provider_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     model_name STRING NOT NULL,
     service_type STRING NOT NULL CHECK (service_type IN ('ollama', 'exolabs', 'llama_cpp')),
-    input_price_per_token DECIMAL(18,8) NOT NULL,
-    output_price_per_token DECIMAL(18,8) NOT NULL,
+    input_price_tokens DECIMAL(18,8) NOT NULL, --  input_price_per_token
+    output_price_tokens DECIMAL(18,8) NOT NULL, --  output_price_per_token
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
@@ -92,6 +92,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     providers UUID[] NOT NULL,
     hmac STRING UNIQUE NOT NULL,
     model_name STRING NOT NULL,
+    input_price_tokens DECIMAL(18,8) NOT NULL, 
+    output_price_tokens DECIMAL(18,8) NOT NULL,
     total_input_tokens INTEGER,
     total_output_tokens INTEGER,
     tokens_per_second FLOAT,
