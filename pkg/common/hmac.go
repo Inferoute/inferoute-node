@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -38,4 +39,23 @@ func (g *HMACGenerator) Generate(consumerID uuid.UUID) (string, error) {
 	h.Write(nonce)
 
 	return "sk-" + base64.URLEncoding.EncodeToString(h.Sum(nil)), nil
+}
+
+// GenerateWithData generates an HMAC using structured data
+func (g *HMACGenerator) GenerateWithData(data interface{}) (string, error) {
+	// Convert data to JSON bytes
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal data: %w", err)
+	}
+
+	// Create new HMAC hasher
+	hasher := hmac.New(sha256.New, []byte(g.secret))
+
+	// Write data to hasher
+	hasher.Write(jsonBytes)
+
+	// Get the result and encode as base64
+	hashBytes := hasher.Sum(nil)
+	return base64.URLEncoding.EncodeToString(hashBytes), nil
 }

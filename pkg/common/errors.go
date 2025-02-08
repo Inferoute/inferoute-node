@@ -147,3 +147,8 @@ func NewNotFoundError(message string) error {
 func NewUnauthorizedError(message string) error {
 	return echo.NewHTTPError(http.StatusUnauthorized, NewErrorResponse(message, nil))
 }
+
+// ErrBadRequest returns an HTTP error with status code 400
+func ErrBadRequest(err error) error {
+	return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+}

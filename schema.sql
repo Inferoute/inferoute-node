@@ -12,6 +12,8 @@ DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS provider_health_history;
 DROP TABLE IF EXISTS system_settings;
+DROP TABLE IF EXISTS consumers;
+DROP TABLE IF EXISTS consumer_models;
 
 -- Create system_settings table
 CREATE TABLE IF NOT EXISTS system_settings (
@@ -88,8 +90,7 @@ CREATE TABLE IF NOT EXISTS provider_models (
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     consumer_id UUID NOT NULL REFERENCES users(id),
-    final_provider_id UUID NOT NULL REFERENCES users(id),
-    providers UUID[] NOT NULL,
+    provider_id UUID NOT NULL REFERENCES users(id),
     hmac STRING UNIQUE NOT NULL,
     model_name STRING NOT NULL,
     input_price_tokens DECIMAL(18,8) NOT NULL, 
@@ -105,7 +106,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
     INDEX (consumer_id),
-    INDEX (final_provider_id),
+    INDEX (provider_id),
     INDEX (hmac)
 );
 
@@ -119,6 +120,31 @@ CREATE TABLE IF NOT EXISTS provider_health_history (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT current_timestamp(),
     INDEX (provider_id, health_check_time DESC)
+);
+
+-- Create consumers table for global price settings
+CREATE TABLE IF NOT EXISTS consumers (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    max_input_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
+    max_output_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    CHECK (max_input_price_tokens >= 0),
+    CHECK (max_output_price_tokens >= 0)
+);
+
+-- Create consumer_models table for model-specific price settings
+CREATE TABLE IF NOT EXISTS consumer_models (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    consumer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    model_name STRING NOT NULL,
+    max_input_price_tokens DECIMAL(18,8) NOT NULL,
+    max_output_price_tokens DECIMAL(18,8) NOT NULL,
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    UNIQUE (consumer_id, model_name),
+    CHECK (max_input_price_tokens >= 0),
+    CHECK (max_output_price_tokens >= 0)
 );
 
 -- Create triggers to update updated_at timestamps
@@ -163,5 +189,15 @@ CREATE TRIGGER update_transactions_updated_at
 
 CREATE TRIGGER update_provider_health_history_updated_at
     BEFORE UPDATE ON provider_health_history
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER update_consumers_updated_at
+    BEFORE UPDATE ON consumers
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER update_consumer_models_updated_at
+    BEFORE UPDATE ON consumer_models
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();

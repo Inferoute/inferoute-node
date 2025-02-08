@@ -60,7 +60,7 @@ func main() {
 	// Query all payment transactions
 	rows, err := db.QueryContext(context.Background(),
 		`SELECT 
-			consumer_id, final_provider_id, hmac, model_name,
+			consumer_id, provider_id, hmac, model_name,
 			total_input_tokens, total_output_tokens, latency,
 			input_price_tokens, output_price_tokens
 		FROM transactions 

@@ -55,9 +55,11 @@ type ValidateAPIKeyRequest struct {
 
 // ValidateAPIKeyResponse represents the response to a validate API key request
 type ValidateAPIKeyResponse struct {
-	Valid    bool      `json:"valid"`
-	UserID   uuid.UUID `json:"user_id,omitempty"`
-	UserType string    `json:"user_type,omitempty"`
+	Valid            bool      `json:"valid"`
+	UserID           uuid.UUID `json:"user_id,omitempty"`
+	UserType         string    `json:"user_type,omitempty"`
+	AvailableBalance float64   `json:"available_balance,omitempty"`
+	HeldBalance      float64   `json:"held_balance,omitempty"`
 }
 
 // HoldDepositRequest represents a request to place a hold on a user's balance

@@ -111,14 +111,16 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 		var userID uuid.UUID
 		var userType string
 		var isActive bool
+		var availableBalance, heldBalance float64
 
 		err := tx.QueryRowContext(ctx,
-			`SELECT ak.user_id, u.type, ak.is_active
+			`SELECT ak.user_id, u.type, ak.is_active, b.available_amount, b.held_amount
 			FROM api_keys ak
 			JOIN users u ON u.id = ak.user_id
+			JOIN balances b ON u.id = b.user_id
 			WHERE ak.api_key = $1`,
 			req.APIKey,
-		).Scan(&userID, &userType, &isActive)
+		).Scan(&userID, &userType, &isActive, &availableBalance, &heldBalance)
 
 		if err == sql.ErrNoRows {
 			response = ValidateAPIKeyResponse{Valid: false}
@@ -129,9 +131,11 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 		}
 
 		response = ValidateAPIKeyResponse{
-			Valid:    isActive,
-			UserID:   userID,
-			UserType: userType,
+			Valid:            isActive,
+			UserID:           userID,
+			UserType:         userType,
+			AvailableBalance: availableBalance,
+			HeldBalance:      heldBalance,
 		}
 
 		return nil

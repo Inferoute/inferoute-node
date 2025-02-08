@@ -29,6 +29,11 @@ start_service() {
 }
 
 # Kill existing processes if they exist
+if [ -f bin/orchestrator.pid ]; then
+    kill $(cat bin/orchestrator.pid) 2>/dev/null
+    rm bin/orchestrator.pid
+fi
+
 if [ -f bin/provider-management.pid ]; then
     kill $(cat bin/provider-management.pid) 2>/dev/null
     rm bin/provider-management.pid
@@ -55,6 +60,7 @@ if [ -f bin/payment-processing.pid ]; then
 fi
 
 # Start services
+start_service "orchestrator" "bin/orchestrator" "cmd/orchestrator/main.go"
 start_service "provider-management" "bin/provider-management" "cmd/provider-management/main.go"
 start_service "auth-service" "bin/auth-service" "cmd/auth/main.go"
 start_service "provider-health" "bin/provider-health" "cmd/provider-health/main.go"

@@ -32,11 +32,11 @@ The main orchestrator of our application.
 
 - **Responsibilities:**
 
-	- Receives requests from Nginx.
+	- Receives requests from Nginx via an API call.
 
 	- Invokes the Authentication Service to validate the API key and check for sufficient funds using auth microservice -  /api/auth/validate  (requires INTERNAL_API_KEY). Also at this point we should check what the maximum a user is willing to pay for their inference for input and output, if a specific price is set for the requested model otherwise use the global settings.
 		- So we need a new table called consumers where such settings can be stored. Links to the users table. Allows user to set their maximum price per 1,000,0000 input tokens and per 1,000,000 output tokens.
-		- We also need a consumers_model table where user can set their minimum and maximum price per 1,000,000 input tokens and per 1,000,000 output tokens for a specific model. So by default the consumer will use the global settings but can override them for a specific model. 
+		- We also need a consumer_models table where user can set their minimum and maximum price per 1,000,000 input tokens and per 1,000,000 output tokens for a specific model. So by default the consumer will use the global settings but can override them for a specific model. 
 	
 	- Generates HMAC(s) for the request using common/hmac.go
 
@@ -332,6 +332,7 @@ OR use this - https://www.multiplayer.app/docs/  Auto-documenttion and provides 
 - Also runs 
 
 - It should also have a very short timeout set so that if the procider client cannot connect it local Ollama it will let our Procider-communiction service know about it. Our provider-communication service should then try to send the request to another provider.
+- Client should also first check whether they are busy performing inference and if so reject the request
 - Will also be running  API that exposes nvidia-smi so nginx can check the utilization of the CPU. Check here.
 https://github.com/Opa-/nvidia-smi-rest/tree/main
 https://github.com/kesor/ollama-proxy/blob/main/Dockerfile
