@@ -40,3 +40,4 @@ go build -o bin/test_payment_processor test_payment_processor.go
 - Needs to have Nginx server with ability to send us their API key  and validate HMAC before sending request to us.
 - Need to have a way to push health status to us, use cron for now.
 - Clients can roll their own using nginx and cron.
+- 
