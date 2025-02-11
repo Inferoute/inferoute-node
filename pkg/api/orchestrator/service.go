@@ -133,88 +133,95 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	return response, nil
 }
 
+// getConsumerSettings gets the consumer's price settings, including any model-specific overrides
 func (s *Service) getConsumerSettings(ctx context.Context, consumerID uuid.UUID, model string) (*ConsumerSettings, error) {
-	s.logger.Info("Getting consumer settings for user %s and model %s", consumerID, model)
-
+	// First check for model-specific settings
 	var settings ConsumerSettings
-
-	// First try to get model-specific settings
-	err := s.db.QueryRowContext(ctx, `
-		SELECT max_input_price_tokens, max_output_price_tokens 
-		FROM consumer_models 
+	err := s.db.QueryRowContext(ctx,
+		`SELECT max_input_price_tokens, max_output_price_tokens
+		FROM consumer_models
 		WHERE consumer_id = $1 AND model_name = $2`,
 		consumerID, model,
 	).Scan(&settings.MaxInputPriceTokens, &settings.MaxOutputPriceTokens)
 
-	if err == nil {
-		s.logger.Info("Found model-specific price settings: input=%v, output=%v",
-			settings.MaxInputPriceTokens, settings.MaxOutputPriceTokens)
-		return &settings, nil
-	}
-
-	if err != sql.ErrNoRows {
-		return nil, fmt.Errorf("error querying model-specific settings: %w", err)
-	}
-
-	// If no model-specific settings found, get global settings
-	s.logger.Info("No model-specific settings found, falling back to global settings")
-	err = s.db.QueryRowContext(ctx, `
-		SELECT max_input_price_tokens, max_output_price_tokens 
-		FROM consumers 
-		WHERE user_id = $1`,
-		consumerID,
-	).Scan(&settings.MaxInputPriceTokens, &settings.MaxOutputPriceTokens)
-
 	if err == sql.ErrNoRows {
-		s.logger.Info("No global settings found, using system defaults")
-		// Use system defaults if no settings found
-		settings.MaxInputPriceTokens = 1.0 // $1.00 per million tokens default
-		settings.MaxOutputPriceTokens = 1.0
-		return &settings, nil
+		// If no model-specific settings, get global settings
+		err = s.db.QueryRowContext(ctx,
+			`SELECT max_input_price_tokens, max_output_price_tokens
+			FROM consumers
+			WHERE id = $1`,
+			consumerID,
+		).Scan(&settings.MaxInputPriceTokens, &settings.MaxOutputPriceTokens)
+
+		if err == sql.ErrNoRows {
+			return nil, common.ErrNotFound(fmt.Errorf("consumer not found"))
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error getting consumer settings: %w", err)
+		}
+	} else if err != nil {
+		return nil, fmt.Errorf("error getting model-specific settings: %w", err)
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("error querying global consumer settings: %w", err)
-	}
-
-	s.logger.Info("Found global price settings: input=%v, output=%v",
-		settings.MaxInputPriceTokens, settings.MaxOutputPriceTokens)
 	return &settings, nil
 }
 
+// getHealthyProviders gets a list of healthy providers that support the requested model
 func (s *Service) getHealthyProviders(ctx context.Context, model string, settings *ConsumerSettings) ([]ProviderInfo, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT ps.provider_id, ps.api_url, pm.input_price_tokens, pm.output_price_tokens, ps.tier, 
-			COALESCE((
-				SELECT latency_ms 
-				FROM provider_health_history 
-				WHERE provider_id = ps.provider_id 
-				ORDER BY health_check_time DESC 
-				LIMIT 1
-			), 0) as latency, ps.health_status
-		FROM provider_status ps
-		JOIN provider_models pm ON ps.provider_id = pm.provider_id
-		WHERE pm.model_name = $1 
-		AND ps.health_status IN ('green', 'orange')
-		AND ps.is_available = true
-		AND NOT ps.paused
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT 
+			p.id,
+			p.api_url,
+			pm.input_price_tokens,
+			pm.output_price_tokens,
+			p.tier,
+			p.health_status,
+			COALESCE(phh.latency_ms, 0) as latency
+		FROM providers p
+		JOIN provider_models pm ON p.id = pm.provider_id
+		LEFT JOIN (
+			SELECT provider_id, latency_ms
+			FROM provider_health_history
+			WHERE health_check_time > NOW() - INTERVAL '5 minutes'
+			ORDER BY health_check_time DESC
+			LIMIT 1
+		) phh ON p.id = phh.provider_id
+		WHERE pm.model_name = $1
+		AND p.is_available = true
+		AND p.health_status != 'red'
+		AND NOT p.paused
 		AND pm.is_active = true
-		AND pm.input_price_tokens <= $2 
+		AND pm.input_price_tokens <= $2
 		AND pm.output_price_tokens <= $3`,
-		model, settings.MaxInputPriceTokens, settings.MaxOutputPriceTokens,
+		model,
+		settings.MaxInputPriceTokens,
+		settings.MaxOutputPriceTokens,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get healthy providers: %w", err)
+		return nil, fmt.Errorf("error getting providers: %w", err)
 	}
 	defer rows.Close()
 
 	var providers []ProviderInfo
 	for rows.Next() {
 		var p ProviderInfo
-		if err := rows.Scan(&p.ProviderID, &p.URL, &p.InputPriceTokens, &p.OutputPriceTokens, &p.Tier, &p.Latency, &p.HealthStatus); err != nil {
-			return nil, fmt.Errorf("failed to scan provider info: %w", err)
+		err := rows.Scan(
+			&p.ProviderID,
+			&p.URL,
+			&p.InputPriceTokens,
+			&p.OutputPriceTokens,
+			&p.Tier,
+			&p.HealthStatus,
+			&p.Latency,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning provider: %w", err)
 		}
 		providers = append(providers, p)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating providers: %w", err)
 	}
 
 	return providers, nil
@@ -302,6 +309,7 @@ func (s *Service) generateHMAC(_ context.Context, consumerID uuid.UUID, req *Ope
 	return hmac, nil
 }
 
+// createTransaction creates a new transaction record
 func (s *Service) createTransaction(ctx context.Context, consumerID uuid.UUID, provider ProviderInfo, model, hmac string) (*TransactionRecord, error) {
 	tx := &TransactionRecord{
 		ID:                uuid.New(),
@@ -314,77 +322,67 @@ func (s *Service) createTransaction(ctx context.Context, consumerID uuid.UUID, p
 		Status:            "pending",
 	}
 
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO transactions (
-			id, consumer_id, provider_id, hmac, model_name, 
-			input_price_tokens, output_price_tokens, status
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO transactions (
+			id, consumer_id, provider_id, hmac, model_name,
+			input_price_tokens, output_price_tokens, status,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())`,
 		tx.ID, tx.ConsumerID, tx.ProviderID, tx.HMAC, tx.ModelName,
 		tx.InputPriceTokens, tx.OutputPriceTokens, tx.Status,
 	)
-
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating transaction: %w", err)
 	}
 
 	return tx, nil
 }
 
+// placeHoldingDeposit places a holding deposit for a consumer
 func (s *Service) placeHoldingDeposit(ctx context.Context, consumerID uuid.UUID) error {
-	s.logger.Info("Starting holding deposit process for consumer %s", consumerID)
-
-	// Create request body
-	reqBody := map[string]interface{}{
-		"user_id": consumerID.String(),
-		"amount":  1.0, // $1 holding deposit
-	}
-
-	s.logger.Info("Making auth service request with body: %+v", reqBody)
-
 	// Make internal request to auth service
-	response, err := common.MakeInternalRequest(
+	resp, err := common.MakeInternalRequest(
 		ctx,
 		"POST",
 		common.AuthService,
 		"/api/auth/hold",
-		reqBody,
+		HoldDepositRequest{
+			ConsumerID: consumerID,
+			Amount:     1.0, // $1 holding deposit
+		},
 	)
-
 	if err != nil {
-		s.logger.Error("Failed to place holding deposit: %v", err)
-		if response != nil {
-			s.logger.Error("Response data: %+v", response)
-		}
-		return fmt.Errorf("failed to place holding deposit: %w", err)
+		return fmt.Errorf("error placing holding deposit: %w", err)
 	}
 
-	s.logger.Info("Auth service response: %+v", response)
-	s.logger.Info("Successfully placed holding deposit for consumer %s", consumerID)
+	if !resp["success"].(bool) {
+		return fmt.Errorf("failed to place holding deposit")
+	}
+
 	return nil
 }
 
+// releaseHoldingDeposit releases a holding deposit for a consumer
 func (s *Service) releaseHoldingDeposit(ctx context.Context, consumerID uuid.UUID) error {
-	// Create request body
-	reqBody := map[string]interface{}{
-		"user_id": consumerID.String(),
-		"amount":  1.0, // $1 holding deposit
-	}
-
-	s.logger.Info("Releasing holding deposit for consumer %s", consumerID)
-
 	// Make internal request to auth service
-	_, err := common.MakeInternalRequest(
+	resp, err := common.MakeInternalRequest(
 		ctx,
 		"POST",
 		common.AuthService,
 		"/api/auth/release",
-		reqBody,
+		ReleaseHoldRequest{
+			ConsumerID: consumerID,
+			Amount:     1.0, // $1 holding deposit
+		},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to release holding deposit: %w", err)
+		return fmt.Errorf("error releasing holding deposit: %w", err)
 	}
 
-	s.logger.Info("Successfully released holding deposit for consumer %s", consumerID)
+	if !resp["success"].(bool) {
+		return fmt.Errorf("failed to release holding deposit")
+	}
+
 	return nil
 }
 
@@ -448,41 +446,52 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 	return nil, fmt.Errorf("all providers failed. Last error: %v", lastErr)
 }
 
+// finalizeTransaction updates the transaction with completion details
 func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord, response interface{}, latency int64) error {
-	// Extract token counts from response
+
+	// Extract response data from interface
 	responseMap, ok := response.(map[string]interface{})
 	if !ok {
+		s.logger.Error("DEBUG: Response is not a map: %T", response)
 		return fmt.Errorf("invalid response format")
 	}
 
-	usage, ok := responseMap["usage"].(map[string]interface{})
+	// Extract usage information from response_data
+	responseData, ok := responseMap["response_data"].(map[string]interface{})
 	if !ok {
+		s.logger.Error("DEBUG: response_data is not a map: %T", responseMap["response_data"])
+		return fmt.Errorf("invalid response_data format")
+	}
+
+	// Extract usage information
+	usage, ok := responseData["usage"].(map[string]interface{})
+	if !ok {
+		s.logger.Error("DEBUG: usage is not a map: %T", responseData["usage"])
 		return fmt.Errorf("missing usage information in response")
 	}
 
-	promptTokens, ok := usage["prompt_tokens"].(float64)
-	if !ok {
-		return fmt.Errorf("invalid prompt tokens format")
-	}
+	// Extract token counts
+	totalInputTokens := int(usage["prompt_tokens"].(float64))
+	totalOutputTokens := int(usage["completion_tokens"].(float64))
 
-	completionTokens, ok := usage["completion_tokens"].(float64)
-	if !ok {
-		return fmt.Errorf("invalid completion tokens format")
-	}
-
-	// Update transaction with token counts and status
-	_, err := s.db.ExecContext(ctx, `
+	// Update transaction with completion details
+	query := `
 		UPDATE transactions 
 		SET total_input_tokens = $1,
 			total_output_tokens = $2,
 			latency = $3,
 			status = 'payment'
-		WHERE id = $4`,
-		int(promptTokens),
-		int(completionTokens),
+		WHERE id = $4
+		RETURNING id`
+
+	var transactionID uuid.UUID
+	err := s.db.QueryRowContext(ctx, query,
+		totalInputTokens,
+		totalOutputTokens,
 		latency,
 		tx.ID,
-	)
+	).Scan(&transactionID)
+
 	if err != nil {
 		return fmt.Errorf("failed to update transaction: %w", err)
 	}
@@ -493,14 +502,14 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		ProviderID:        tx.ProviderID,
 		HMAC:              tx.HMAC,
 		ModelName:         tx.ModelName,
-		TotalInputTokens:  int(promptTokens),
-		TotalOutputTokens: int(completionTokens),
+		TotalInputTokens:  totalInputTokens,
+		TotalOutputTokens: totalOutputTokens,
 		InputPriceTokens:  tx.InputPriceTokens,
 		OutputPriceTokens: tx.OutputPriceTokens,
 		Latency:           latency,
 	}
 
-	// Convert message to JSON
+	// Convert to JSON
 	msgBytes, err := json.Marshal(paymentMsg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payment message: %w", err)
@@ -508,16 +517,15 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 
 	// Publish to RabbitMQ
 	err = s.rmq.Publish(
-		"transactions_exchange",
-		"transactions",
+		"transactions_exchange", // exchange
+		"transactions",          // routing key
 		msgBytes,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to publish payment message: %w", err)
 	}
 
-	s.logger.Info("Successfully finalized transaction %s with %d input tokens and %d output tokens",
-		tx.ID, int(promptTokens), int(completionTokens))
+	s.logger.Info("Published payment message for transaction %s", tx.ID)
 	return nil
 }
 

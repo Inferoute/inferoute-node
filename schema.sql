@@ -6,7 +6,7 @@ USE inferoute;
 DROP TABLE IF EXISTS transactions;
 DROP TABLE IF EXISTS hmacs;
 DROP TABLE IF EXISTS provider_models;
-DROP TABLE IF EXISTS provider_status;
+DROP TABLE IF EXISTS providers;
 DROP TABLE IF EXISTS balances;
 DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS users;
@@ -33,31 +33,11 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP DEFAULT current_timestamp()
 );
 
--- Balances table (for tracking user funds)
-CREATE TABLE IF NOT EXISTS balances (
-    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    available_amount DECIMAL(18,8) NOT NULL DEFAULT 0,
-    held_amount DECIMAL(18,8) NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
-    CHECK (available_amount >= 0),
-    CHECK (held_amount >= 0)
-);
-
--- API Keys table
-CREATE TABLE IF NOT EXISTS api_keys (
+-- Providers table (renamed from provider_status)
+CREATE TABLE IF NOT EXISTS providers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    api_key STRING UNIQUE NOT NULL,
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
-    INDEX (user_id)
-);
-
--- Provider Status table (for health checks and availability)
-CREATE TABLE IF NOT EXISTS provider_status (
-    provider_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    name STRING NOT NULL,
     is_available BOOLEAN NOT NULL DEFAULT false,
     last_health_check TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     health_status STRING NOT NULL DEFAULT 'red' CHECK (health_status IN ('green', 'orange', 'red')),
@@ -65,20 +45,63 @@ CREATE TABLE IF NOT EXISTS provider_status (
     paused BOOLEAN NOT NULL DEFAULT FALSE,
     api_url STRING,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, name)
 );
 
 -- Add index for faster querying of non-paused providers
-CREATE INDEX idx_provider_status_paused ON provider_status(paused) WHERE NOT paused;
+CREATE INDEX idx_providers_paused ON providers(paused) WHERE NOT paused;
+
+-- Consumers table
+CREATE TABLE IF NOT EXISTS consumers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name STRING NOT NULL,
+    max_input_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
+    max_output_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    CHECK (max_input_price_tokens >= 0),
+    CHECK (max_output_price_tokens >= 0),
+    UNIQUE (user_id, name)
+);
+
+-- API Keys table - now linked to providers/consumers instead of users
+CREATE TABLE IF NOT EXISTS api_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider_id UUID REFERENCES providers(id) ON DELETE CASCADE,
+    consumer_id UUID REFERENCES consumers(id) ON DELETE CASCADE,
+    api_key STRING UNIQUE NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    CHECK ((provider_id IS NULL AND consumer_id IS NOT NULL) OR (provider_id IS NOT NULL AND consumer_id IS NULL)),
+    INDEX (provider_id),
+    INDEX (consumer_id)
+);
+
+-- Balances table (for tracking consumer/provider funds)
+CREATE TABLE IF NOT EXISTS balances (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider_id UUID REFERENCES providers(id) ON DELETE CASCADE,
+    consumer_id UUID REFERENCES consumers(id) ON DELETE CASCADE,
+    available_amount DECIMAL(18,8) NOT NULL DEFAULT 0,
+    held_amount DECIMAL(18,8) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    CHECK ((provider_id IS NULL AND consumer_id IS NOT NULL) OR (provider_id IS NOT NULL AND consumer_id IS NULL)),
+    CHECK (available_amount >= 0),
+    CHECK (held_amount >= 0)
+);
 
 -- Provider Models table (for tracking which models each provider supports)
 CREATE TABLE IF NOT EXISTS provider_models (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    provider_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
     model_name STRING NOT NULL,
     service_type STRING NOT NULL CHECK (service_type IN ('ollama', 'exolabs', 'llama_cpp')),
-    input_price_tokens DECIMAL(18,8) NOT NULL, --  input_price_per_token
-    output_price_tokens DECIMAL(18,8) NOT NULL, --  output_price_per_token
+    input_price_tokens DECIMAL(18,8) NOT NULL,
+    output_price_tokens DECIMAL(18,8) NOT NULL,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
@@ -89,8 +112,8 @@ CREATE TABLE IF NOT EXISTS provider_models (
 -- Transactions table
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    consumer_id UUID NOT NULL REFERENCES users(id),
-    provider_id UUID NOT NULL REFERENCES users(id),
+    consumer_id UUID NOT NULL REFERENCES consumers(id),
+    provider_id UUID NOT NULL REFERENCES providers(id),
     hmac STRING UNIQUE NOT NULL,
     model_name STRING NOT NULL,
     input_price_tokens DECIMAL(18,8) NOT NULL, 
@@ -113,7 +136,7 @@ CREATE TABLE IF NOT EXISTS transactions (
 -- Create provider_health_history table
 CREATE TABLE IF NOT EXISTS provider_health_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    provider_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
     health_status STRING NOT NULL CHECK (health_status IN ('green', 'orange', 'red')),
     latency_ms INTEGER NOT NULL,
     health_check_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -122,21 +145,10 @@ CREATE TABLE IF NOT EXISTS provider_health_history (
     INDEX (provider_id, health_check_time DESC)
 );
 
--- Create consumers table for global price settings
-CREATE TABLE IF NOT EXISTS consumers (
-    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    max_input_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
-    max_output_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
-    created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
-    CHECK (max_input_price_tokens >= 0),
-    CHECK (max_output_price_tokens >= 0)
-);
-
 -- Create consumer_models table for model-specific price settings
 CREATE TABLE IF NOT EXISTS consumer_models (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    consumer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    consumer_id UUID NOT NULL REFERENCES consumers(id) ON DELETE CASCADE,
     model_name STRING NOT NULL,
     max_input_price_tokens DECIMAL(18,8) NOT NULL,
     max_output_price_tokens DECIMAL(18,8) NOT NULL,
@@ -162,8 +174,13 @@ CREATE TRIGGER update_users_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
 
-CREATE TRIGGER update_balances_updated_at
-    BEFORE UPDATE ON balances
+CREATE TRIGGER update_providers_updated_at
+    BEFORE UPDATE ON providers
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER update_consumers_updated_at
+    BEFORE UPDATE ON consumers
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
 
@@ -172,8 +189,8 @@ CREATE TRIGGER update_api_keys_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
 
-CREATE TRIGGER update_provider_status_updated_at
-    BEFORE UPDATE ON provider_status
+CREATE TRIGGER update_balances_updated_at
+    BEFORE UPDATE ON balances
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
 
@@ -189,11 +206,6 @@ CREATE TRIGGER update_transactions_updated_at
 
 CREATE TRIGGER update_provider_health_history_updated_at
     BEFORE UPDATE ON provider_health_history
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER update_consumers_updated_at
-    BEFORE UPDATE ON consumers
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
 

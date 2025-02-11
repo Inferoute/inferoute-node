@@ -3,10 +3,8 @@ package health
 import (
 	"database/sql"
 	"net/http"
-	"time"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/sentnl/inferoute-node/internal/db"
 	"github.com/sentnl/inferoute-node/pkg/common"
@@ -108,90 +106,61 @@ func (h *Handler) GetHealthyNodes(c echo.Context) error {
 // @Failure 500 {object} common.ErrorResponse
 // @Router /api/health/provider/{provider_id} [get]
 func (h *Handler) GetProviderHealth(c echo.Context) error {
-	providerID, err := uuid.Parse(c.Param("provider_id"))
-	if err != nil {
-		return common.NewBadRequestError("invalid provider ID")
+	// Parse provider ID from URL
+	providerID := c.Param("provider_id")
+	if providerID == "" {
+		return common.NewBadRequestError("provider_id is required")
 	}
 
-	query := `
-		SELECT 
-			ps.provider_id,
+	// Query provider status
+	var response ProviderHealthResponse
+	err := h.service.db.QueryRowContext(c.Request().Context(),
+		`SELECT 
+			p.id,
 			u.username,
-			ps.health_status,
-			ps.tier,
-			ps.is_available,
-			COALESCE((
-				SELECT latency_ms 
-				FROM provider_health_history 
-				WHERE provider_id = ps.provider_id 
-				ORDER BY health_check_time DESC 
-				LIMIT 1
-			), 0) as latency_ms,
-			ps.last_health_check
-		FROM provider_status ps
-		JOIN users u ON u.id = ps.provider_id
-		WHERE ps.provider_id = $1`
-
-	var health ProviderHealthResponse
-	err = h.service.db.QueryRowContext(c.Request().Context(), query, providerID).Scan(
-		&health.ProviderID,
-		&health.Username,
-		&health.HealthStatus,
-		&health.Tier,
-		&health.IsAvailable,
-		&health.Latency,
-		&health.LastHealthCheck,
+			p.health_status,
+			p.tier,
+			p.is_available,
+			COALESCE(phh.latency_ms, 0) as latency,
+			p.last_health_check
+		FROM providers p
+		JOIN users u ON u.id = p.user_id
+		LEFT JOIN (
+			SELECT provider_id, latency_ms
+			FROM provider_health_history
+			WHERE health_check_time = (
+				SELECT MAX(health_check_time)
+				FROM provider_health_history
+				GROUP BY provider_id
+				HAVING provider_id = $1
+			)
+		) phh ON phh.provider_id = p.id
+		WHERE p.id = $1`,
+		providerID,
+	).Scan(
+		&response.ProviderID,
+		&response.Username,
+		&response.HealthStatus,
+		&response.Tier,
+		&response.IsAvailable,
+		&response.Latency,
+		&response.LastHealthCheck,
 	)
 
 	if err == sql.ErrNoRows {
 		return common.NewNotFoundError("provider not found")
 	}
 	if err != nil {
+		h.logger.Error("Database error: %v", err)
 		return common.NewInternalError("database error", err)
 	}
 
-	return c.JSON(http.StatusOK, health)
-}
-
-// Types for responses
-type HealthyNodeResponse struct {
-	ProviderID string `json:"provider_id"`
-	Username   string `json:"username"`
-	Tier       int    `json:"tier"`
-	Latency    int    `json:"latency_ms"`
-}
-
-type ProviderHealthResponse struct {
-	ProviderID      string    `json:"provider_id"`
-	Username        string    `json:"username"`
-	HealthStatus    string    `json:"health_status"`
-	Tier            int       `json:"tier"`
-	IsAvailable     bool      `json:"is_available"`
-	Latency         int       `json:"latency_ms"`
-	LastHealthCheck time.Time `json:"last_health_check"`
-}
-
-// FilterProvidersRequest represents the query parameters for filtering providers
-type FilterProvidersRequest struct {
-	ModelName string  `query:"model_name" validate:"required"`
-	Tier      *int    `query:"tier"`
-	MaxCost   float64 `query:"max_cost" validate:"required,gt=0"`
-}
-
-// FilterProvidersResponse represents a provider in the filtered list
-type FilterProvidersResponse struct {
-	ProviderID   string  `json:"provider_id"`
-	Username     string  `json:"username"`
-	Tier         int     `json:"tier"`
-	HealthStatus string  `json:"health_status"`
-	Latency      int     `json:"latency_ms"`
-	InputCost    float64 `json:"input_cost"`
-	OutputCost   float64 `json:"output_cost"`
+	return c.JSON(http.StatusOK, response)
 }
 
 // @Summary Filter providers by model, tier, health status, and cost
 // @Description Get a list of healthy providers offering a specific model within cost constraints
-// @Tags Health
+// @Tags providers
 // @Accept json
 // @Produce json
 // @Param model_name query string true "Name of the model to filter by"
@@ -213,20 +182,20 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 
 	query := `
 		WITH healthy_providers AS (
-			SELECT ps.provider_id, ps.tier, ps.health_status, 
+			SELECT p.id as provider_id, p.tier, p.health_status, 
 				   u.username,
-				   COALESCE((
-					   SELECT latency_ms 
-					   FROM provider_health_history 
-					   WHERE provider_id = ps.provider_id 
-					   ORDER BY health_check_time DESC 
-					   LIMIT 1
-				   ), 0) as latency_ms
-			FROM provider_status ps
-			JOIN users u ON u.id = ps.provider_id
-			WHERE ps.health_status = 'green'
-			AND ps.is_available = true
-			AND ($1::int IS NULL OR ps.tier = $1)
+				   COALESCE(phh.latency_ms, 0) as latency_ms
+			FROM providers p
+			JOIN users u ON u.id = p.user_id
+			LEFT JOIN (
+				SELECT DISTINCT ON (provider_id) provider_id, latency_ms
+				FROM provider_health_history
+				ORDER BY provider_id, health_check_time DESC
+			) phh ON phh.provider_id = p.id
+			WHERE p.health_status != 'red'
+			AND p.is_available = true
+			AND NOT p.paused
+			AND ($1::int IS NULL OR p.tier = $1)
 		)
 		SELECT 
 			hp.provider_id,
@@ -239,6 +208,7 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 		FROM healthy_providers hp
 		JOIN provider_models pm ON pm.provider_id = hp.provider_id
 		WHERE pm.model_name = $2
+		AND pm.is_active = true
 		AND pm.input_price_tokens <= $3
 		AND pm.output_price_tokens <= $3
 		ORDER BY hp.tier ASC, hp.latency_ms ASC;

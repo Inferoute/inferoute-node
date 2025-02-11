@@ -101,7 +101,7 @@ func (s *Service) processPayment(msg *PaymentMessage) error {
 	}
 
 	// Calculate tokens per second
-	tokensPerSecond := float64(msg.TotalOutputTokens) / float64(msg.Latency)
+	tokensPerSecond := float64(msg.TotalOutputTokens) / (float64(msg.Latency) / 1000.0)
 
 	// Calculate costs using prices from the message (per million tokens)
 	inputCost := float64(msg.TotalInputTokens) * (msg.InputPriceTokens / 1_000_000.0)
@@ -152,7 +152,7 @@ func (s *Service) processConsumerDebit(consumerID uuid.UUID, amount float64) err
 		`UPDATE balances 
 		SET available_amount = available_amount - $1,
 			updated_at = NOW()
-		WHERE user_id = $2`,
+		WHERE consumer_id = $2`,
 		amount,
 		consumerID,
 	)
@@ -165,7 +165,7 @@ func (s *Service) processProviderCredit(providerID uuid.UUID, amount float64) er
 		`UPDATE balances 
 		SET available_amount = available_amount + $1,
 			updated_at = NOW()
-		WHERE user_id = $2`,
+		WHERE provider_id = $2`,
 		amount,
 		providerID,
 	)

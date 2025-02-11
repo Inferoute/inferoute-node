@@ -113,7 +113,8 @@ func main() {
 			var username string
 			query := `SELECT u.id, u.username 
 				FROM users u
-				JOIN api_keys ak ON u.id = ak.user_id
+				JOIN providers p ON p.user_id = u.id
+				JOIN api_keys ak ON ak.provider_id = p.id
 				WHERE ak.api_key = $1 AND u.type = 'provider' AND ak.is_active = true`
 
 			err := database.QueryRowContext(c.Request().Context(), query, apiKey).Scan(&userID, &username)

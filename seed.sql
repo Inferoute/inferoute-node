@@ -1,72 +1,72 @@
 -- Seed data for testing
 
 -- Clear existing data
-TRUNCATE users, api_keys, provider_status, provider_models, provider_health_history, balances, system_settings CASCADE;
+TRUNCATE users, api_keys, providers, provider_models, provider_health_history, balances, system_settings CASCADE;
 
 -- Initialize system settings
 INSERT INTO system_settings (setting_key, setting_value, description) VALUES
-    ('fee_percentage', '5.0', 'Platform fee percentage taken from each transaction'),
-    ('max_retry_count', '3', 'Maximum number of retries for failed requests');
+    ('fee_percentage', '5', 'Service fee percentage (5%)');
 
 -- Create test providers with different reliability patterns
-INSERT INTO users (id, type, username) VALUES
-    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'provider', 'tier1_provider'),     -- Ultra reliable
-    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'provider', 'tier2_provider_a'),   -- Very reliable
-    ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'provider', 'tier2_provider_b'),   -- Very reliable with occasional issues
-    ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'provider', 'tier3_provider_a'),   -- Less reliable
-    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'provider', 'tier3_provider_b'),   -- Unreliable
-    ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'provider', 'new_provider');        -- New provider, no history
+INSERT INTO users (id, type, username, created_at, updated_at) VALUES
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'provider', 'tier1_provider', NOW(), NOW()),     -- Ultra reliable
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'provider', 'tier2_provider_a', NOW(), NOW()),   -- Very reliable
+    ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'provider', 'tier2_provider_b', NOW(), NOW()),   -- Very reliable with occasional issues
+    ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'provider', 'tier3_provider_a', NOW(), NOW()),   -- Less reliable
+    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'provider', 'tier3_provider_b', NOW(), NOW()),   -- Unreliable
+    ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'provider', 'new_provider', NOW(), NOW());        -- New provider, no history
 
--- Create API keys for providers
-INSERT INTO api_keys (id, user_id, api_key) VALUES
-    (gen_random_uuid(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'test_key_tier1'),
-    (gen_random_uuid(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'test_key_tier2a'),
-    (gen_random_uuid(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'test_key_tier2b'),
-    (gen_random_uuid(), 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'test_key_tier3a'),
-    (gen_random_uuid(), 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'test_key_tier3b'),
-    (gen_random_uuid(), 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'test_key_new');
+-- Create providers FIRST (before api_keys that reference them)
+INSERT INTO providers (id, user_id, name, is_available, health_status, tier, paused, api_url, created_at, updated_at) VALUES
+    -- Tier 1 Provider (Premium)
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Tier 1 Provider', true, 'green', 1, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app', NOW(), NOW()),   -- Tier 1
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Tier 2 Provider A', true, 'green', 2, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app', NOW(), NOW()),   -- Tier 2
+    ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Tier 2 Provider B', true, 'green', 2, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app', NOW(), NOW()),  -- Tier 2
+    ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'Tier 3 Provider A', true, 'green', 3, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app', NOW(), NOW()),   -- Tier 3
+    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Tier 3 Provider B', true, 'orange', 3, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app', NOW(), NOW()),     -- Tier 3
+    ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'New Provider', true, 'orange', 3, false, null, NOW(), NOW());   -- Starting at Tier 3, no URL yet
 
--- Initialize provider status
-INSERT INTO provider_status (provider_id, is_available, health_status, tier, paused, api_url) VALUES
-    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true, 'green', 1, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app'),   -- Tier 1
-    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', true, 'green', 2, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app'),   -- Tier 2
-    ('cccccccc-cccc-cccc-cccc-cccccccccccc', true, 'green', 2, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app'),  -- Tier 2
-    ('dddddddd-dddd-dddd-dddd-dddddddddddd', true, 'green', 3, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app'),   -- Tier 3
-    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', true, 'orange', 3, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app'),     -- Tier 3
-    ('ffffffff-ffff-ffff-ffff-ffffffffffff', true, 'orange', 3, false, null);   -- Starting at Tier 3, no URL yet
+-- NOW create API keys for providers (after providers exist)
+INSERT INTO api_keys (id, provider_id, api_key, is_active, created_at, updated_at) VALUES
+    ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'test_key_tier1', true, NOW(), NOW()),
+    ('22222222-2222-2222-2222-222222222222', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'test_key_tier2a', true, NOW(), NOW()),
+    ('33333333-3333-3333-3333-333333333333', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'test_key_tier2b', true, NOW(), NOW()),
+    ('44444444-4444-4444-4444-444444444444', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'test_key_tier3a', true, NOW(), NOW()),
+    ('55555555-5555-5555-5555-555555555555', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'test_key_tier3b', true, NOW(), NOW()),
+    ('66666666-6666-6666-6666-666666666666', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'test_key_new', true, NOW(), NOW());
 
 -- Create provider models
-INSERT INTO provider_models (id, provider_id, model_name, service_type, input_price_tokens, output_price_tokens, is_active) VALUES
+INSERT INTO provider_models (id, provider_id, model_name, service_type, input_price_tokens, output_price_tokens, is_active, created_at, updated_at) VALUES
     -- Tier 1 Provider (Premium models)
-    (gen_random_uuid(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'deepseek-r1:8b', 'ollama', 0.15, 0.3, true),
-    (gen_random_uuid(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'claude-3-opus', 'ollama', 0.15, 0.35, true),
-    (gen_random_uuid(), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'gemini-pro', 'ollama', 0.8, 0.25, true),
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'deepseek-r1:8b', 'ollama', 0.15, 0.3, true, NOW(), NOW()),
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'claude-3-opus', 'ollama', 0.15, 0.35, true, NOW(), NOW()),
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaac', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'gemini-pro', 'ollama', 0.8, 0.25, true, NOW(), NOW()),
 
     -- Tier 2 Provider A (Mix of models)
-    (gen_random_uuid(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'deepseek-r1:8b', 'ollama', 0.5, 0.15, true),
-    (gen_random_uuid(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'claude-2', 'ollama', 0.6, 0.18, true),
-    (gen_random_uuid(), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'mistral-medium', 'ollama', 0.4, 0.12, true),
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'deepseek-r1:8b', 'ollama', 0.5, 0.15, true, NOW(), NOW()),
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbc', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'claude-2', 'ollama', 0.6, 0.18, true, NOW(), NOW()),
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbd', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'mistral-medium', 'ollama', 0.4, 0.12, true, NOW(), NOW()),
 
     -- Tier 2 Provider B
-    (gen_random_uuid(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'deepseek-r1:8b', 'ollama', 0.45, 0.14, true),
-    (gen_random_uuid(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'mistral-small', 'ollama', 0.3, 0.9, true),
-    (gen_random_uuid(), 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama3.2', 'ollama', 0.2, 0.6, true),
+    ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'deepseek-r1:8b', 'ollama', 0.45, 0.14, true, NOW(), NOW()),
+    ('cccccccc-cccc-cccc-cccc-ccccccccccca', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'mistral-small', 'ollama', 0.3, 0.9, true, NOW(), NOW()),
+    ('cccccccc-cccc-cccc-cccc-cccccccccccb', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama3.2', 'ollama', 0.2, 0.6, true, NOW(), NOW()),
 
     -- Tier 3 Provider A (Basic models)
-    (gen_random_uuid(), 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'deepseek-r1:32b', 'ollama', 0.2, 0.6, true),
-    (gen_random_uuid(), 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama3.2', 'ollama', 0.15, 0.45, true),
+    ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'deepseek-r1:32b', 'ollama', 0.2, 0.6, true, NOW(), NOW()),
+    ('dddddddd-dddd-dddd-dddd-ddddddddddde', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama3.2', 'ollama', 0.15, 0.45, true, NOW(), NOW()),
 
     -- Tier 3 Provider B
-    (gen_random_uuid(), 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'mistral-small', 'ollama', 0.18, 0.5, true),
-    (gen_random_uuid(), 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'llama3.2', 'ollama', 0.1, 0.3, true),
+    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'mistral-small', 'ollama', 0.18, 0.5, true, NOW(), NOW()),
+    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeef', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'llama3.2', 'ollama', 0.1, 0.3, true, NOW(), NOW()),
 
     -- New Provider (Starting with basic models)
-    (gen_random_uuid(), 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'mistral-small', 'ollama', 0.2, 0.6, true),
-    (gen_random_uuid(), 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'llama3.2', 'ollama', 0.15, 0.45, true);
+    ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'mistral-small', 'ollama', 0.2, 0.6, true, NOW(), NOW()),
+    ('ffffffff-ffff-ffff-ffff-fffffffffff0', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'llama3.2', 'ollama', 0.15, 0.45, true, NOW(), NOW());
 
 -- Create health history for the last 30 days
 -- Tier 1 Provider (99.9% uptime)
-INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time)
+INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time, created_at, updated_at)
 SELECT 
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     CASE 
@@ -74,11 +74,12 @@ SELECT
         ELSE 'green' 
     END,
     floor(random() * 20 + 10)::int,  -- 10-30ms latency
-    NOW() - (interval '1 hour' * generate_series(0, 720))  -- Last 30 days, hourly checks
+    NOW() - (interval '1 hour' * generate_series(0, 720)),  -- Last 30 days, hourly checks
+    NOW(), NOW()
 WHERE random() < 0.99;  -- 99% check success rate
 
 -- Tier 2 Provider A (97% uptime)
-INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time)
+INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time, created_at, updated_at)
 SELECT 
     'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
     CASE 
@@ -86,11 +87,12 @@ SELECT
         ELSE 'green' 
     END,
     floor(random() * 30 + 15)::int,  -- 15-45ms latency
-    NOW() - (interval '1 hour' * generate_series(0, 720))
+    NOW() - (interval '1 hour' * generate_series(0, 720)),
+    NOW(), NOW()
 WHERE random() < 0.98;  -- 98% check success rate
 
 -- Tier 2 Provider B (95% uptime)
-INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time)
+INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time, created_at, updated_at)
 SELECT 
     'cccccccc-cccc-cccc-cccc-cccccccccccc',
     CASE 
@@ -98,11 +100,12 @@ SELECT
         ELSE 'green' 
     END,
     floor(random() * 35 + 20)::int,  -- 20-55ms latency
-    NOW() - (interval '1 hour' * generate_series(0, 720))
+    NOW() - (interval '1 hour' * generate_series(0, 720)),
+    NOW(), NOW()
 WHERE random() < 0.97;  -- 97% check success rate
 
 -- Tier 3 Provider A (90% uptime)
-INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time)
+INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time, created_at, updated_at)
 SELECT 
     'dddddddd-dddd-dddd-dddd-dddddddddddd',
     CASE 
@@ -111,11 +114,12 @@ SELECT
         ELSE 'green' 
     END,
     floor(random() * 40 + 25)::int,  -- 25-65ms latency
-    NOW() - (interval '1 hour' * generate_series(0, 720))
+    NOW() - (interval '1 hour' * generate_series(0, 720)),
+    NOW(), NOW()
 WHERE random() < 0.95;  -- 95% check success rate
 
 -- Tier 3 Provider B (85% uptime)
-INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time)
+INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time, created_at, updated_at)
 SELECT 
     'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
     CASE 
@@ -124,11 +128,12 @@ SELECT
         ELSE 'green' 
     END,
     floor(random() * 50 + 30)::int,  -- 30-80ms latency
-    NOW() - (interval '1 hour' * generate_series(0, 720))
+    NOW() - (interval '1 hour' * generate_series(0, 720)),
+    NOW(), NOW()
 WHERE random() < 0.90;  -- 90% check success rate
 
 -- New Provider (Just starting, only a few hours of history)
-INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time)
+INSERT INTO provider_health_history (provider_id, health_status, latency_ms, health_check_time, created_at, updated_at)
 SELECT 
     'ffffffff-ffff-ffff-ffff-ffffffffffff',
     CASE 
@@ -136,55 +141,64 @@ SELECT
         ELSE 'green' 
     END,
     floor(random() * 30 + 20)::int,  -- 20-50ms latency
-    NOW() - (interval '1 hour' * generate_series(0, 24))  -- Only 24 hours of history
+    NOW() - (interval '1 hour' * generate_series(0, 24)),  -- Only 24 hours of history
+    NOW(), NOW()
 WHERE random() < 0.99;  -- 99% check success rate for initial period
 
--- Create consumer records
-INSERT INTO users (id, type, username) VALUES
-    ('11111111-1111-1111-1111-111111111111', 'consumer', 'enterprise_user'),
-    ('22222222-2222-2222-2222-222222222222', 'consumer', 'business_user'),
-    ('33333333-3333-3333-3333-333333333333', 'consumer', 'startup_user'),
-    ('44444444-4444-4444-4444-444444444444', 'consumer', 'individual_user');
+-- Create consumer users first
+INSERT INTO users (id, type, username, created_at, updated_at) VALUES
+    ('11111111-1111-1111-1111-111111111111', 'consumer', 'enterprise_user', NOW(), NOW()),
+    ('22222222-2222-2222-2222-222222222222', 'consumer', 'business_user', NOW(), NOW()),
+    ('33333333-3333-3333-3333-333333333333', 'consumer', 'startup_user', NOW(), NOW()),
+    ('44444444-4444-4444-4444-444444444444', 'consumer', 'individual_user', NOW(), NOW());
 
--- Add API keys for consumers
-INSERT INTO api_keys (id, user_id, api_key) VALUES
-    (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'consumer_key_enterprise'),
-    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'consumer_key_business'),
-    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'consumer_key_startup'),
-    (gen_random_uuid(), '44444444-4444-4444-4444-444444444444', 'consumer_key_individual');
+-- Then create consumers
+INSERT INTO consumers (id, user_id, name, max_input_price_tokens, max_output_price_tokens, created_at, updated_at) VALUES
+    ('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'Enterprise: highest price tolerance', 1.0, 2.0, NOW(), NOW()),
+    ('dddddddd-dddd-dddd-dddd-dddddddddddd', '22222222-2222-2222-2222-222222222222', 'Business: high price tolerance', 0.8, 1.5, NOW(), NOW()),
+    ('77777777-7777-7777-7777-777777777777', '33333333-3333-3333-3333-333333333333', 'Startup: medium price tolerance', 0.5, 1.0, NOW(), NOW()),
+    ('66666666-6666-6666-6666-666666666666', '44444444-4444-4444-4444-444444444444', 'Individual: budget conscious', 0.3, 0.6, NOW(), NOW());
 
--- Set up consumer global price settings
-INSERT INTO consumers (user_id, max_input_price_tokens, max_output_price_tokens) VALUES
-    ('11111111-1111-1111-1111-111111111111', 1.0, 2.0),    -- Enterprise: highest price tolerance
-    ('22222222-2222-2222-2222-222222222222', 0.8, 1.5),    -- Business: high price tolerance
-    ('33333333-3333-3333-3333-333333333333', 0.5, 1.0),    -- Startup: medium price tolerance
-    ('44444444-4444-4444-4444-444444444444', 0.3, 0.6);    -- Individual: budget conscious
+-- Then create API keys for consumers (after consumers exist)
+INSERT INTO api_keys (id, consumer_id, api_key, is_active, created_at, updated_at) VALUES
+    ('aaaaaaaa-1111-2222-3333-444444444444', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'consumer_key_enterprise', true, NOW(), NOW()),
+    ('bbbbbbbb-1111-2222-3333-444444444444', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'consumer_key_business', true, NOW(), NOW()),
+    ('cccccccc-1111-2222-3333-444444444444', '77777777-7777-7777-7777-777777777777', 'consumer_key_startup', true, NOW(), NOW()),
+    ('dddddddd-1111-2222-3333-444444444444', '66666666-6666-6666-6666-666666666666', 'consumer_key_individual', true, NOW(), NOW());
 
 -- Set up model-specific price settings for consumers
-INSERT INTO consumer_models (id, consumer_id, model_name, max_input_price_tokens, max_output_price_tokens) VALUES
+INSERT INTO consumer_models (id, consumer_id, model_name, max_input_price_tokens, max_output_price_tokens, created_at, updated_at) VALUES
     -- Enterprise user model preferences
-    (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'llama3.2', 0.9, 1.8),
-    (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'deepseek-r1:8b', 0.8, 1.6),
+    ('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama3.2', 0.9, 1.8, NOW(), NOW()),
+    ('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'deepseek-r1:8b', 0.8, 1.6, NOW(), NOW()),
     
     -- Business user model preferences
-    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'llama3.2', 0.7, 1.4),
-    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'deepseek-r1:8b', 0.6, 1.2),
+    ('bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama3.2', 0.7, 1.4, NOW(), NOW()),
+    ('bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeef', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'deepseek-r1:8b', 0.6, 1.2, NOW(), NOW()),
     
     -- Startup user model preferences
-    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'mistral-medium', 0.4, 0.8),
-    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'llama3.2', 0.3, 0.6),
+    ('cccccccc-cccc-cccc-dddd-eeeeeeeeeeee', '77777777-7777-7777-7777-777777777777', 'mistral-medium', 0.4, 0.8, NOW(), NOW()),
+    ('cccccccc-cccc-cccc-dddd-eeeeeeeeeeef', '77777777-7777-7777-7777-777777777777', 'llama3.2', 0.3, 0.6, NOW(), NOW()),
     
     -- Individual user model preferences
-    (gen_random_uuid(), '44444444-4444-4444-4444-444444444444', 'deepseek-r1:8b', 0.2, 0.4),
-    (gen_random_uuid(), '44444444-4444-4444-4444-444444444444', 'llama3.2', 0.2, 0.31);
+    ('dddddddd-dddd-dddd-dddd-dddddddddddd', '66666666-6666-6666-6666-666666666666', 'deepseek-r1:8b', 0.2, 0.4, NOW(), NOW()),
+    ('dddddddd-dddd-dddd-dddd-dddddddddddf', '66666666-6666-6666-6666-666666666666', 'llama3.2', 0.2, 0.31, NOW(), NOW());
 
 -- Set up initial balances for consumers
-INSERT INTO balances (user_id, available_amount, held_amount) VALUES
-    ('11111111-1111-1111-1111-111111111111', 10000.00, 0.00),  -- Enterprise: Large balance
-    ('22222222-2222-2222-2222-222222222222', 5000.00, 0.00),   -- Business: Medium-large balance
-    ('33333333-3333-3333-3333-333333333333', 1000.00, 0.00),   -- Startup: Medium balance
-    ('44444444-4444-4444-4444-444444444444', 100.00, 0.00);    -- Individual: Small balance
+INSERT INTO balances (id, provider_id, consumer_id, available_amount, held_amount, created_at, updated_at) VALUES
+    ('11111111-2222-3333-4444-555555555555', NULL, 'cccccccc-cccc-cccc-cccc-cccccccccccc', 10000.00, 0.00, NOW(), NOW()),  -- Enterprise: Large balance
+    ('22222222-3333-4444-5555-666666666666', NULL, 'dddddddd-dddd-dddd-dddd-dddddddddddd', 5000.00, 0.00, NOW(), NOW()),   -- Business: Medium-large balance
+    ('33333333-4444-5555-6666-777777777777', NULL, '77777777-7777-7777-7777-777777777777', 1000.00, 0.00, NOW(), NOW()),   -- Startup: Medium balance
+    ('44444444-5555-6666-7777-888888888888', NULL, '66666666-6666-6666-6666-666666666666', 100.00, 0.00, NOW(), NOW());    -- Individual: Small balance
 
+-- Set up initial balances for providers
+INSERT INTO balances (id, provider_id, consumer_id, available_amount, held_amount, created_at, updated_at) VALUES
+    ('55555555-6666-7777-8888-999999999999', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', NULL, 5000.00, 0.00, NOW(), NOW()),  -- Tier 1 provider: Large earnings
+    ('66666666-7777-8888-9999-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', NULL, 2500.00, 0.00, NOW(), NOW()),  -- Tier 2 provider: Medium earnings
+    ('77777777-8888-9999-aaaa-bbbbbbbbbbbb', 'cccccccc-cccc-cccc-cccc-cccccccccccc', NULL, 1000.00, 0.00, NOW(), NOW()),  -- Tier 3 provider: Starting earnings
+    ('88888888-9999-aaaa-bbbb-cccccccccccc', 'ffffffff-ffff-ffff-ffff-ffffffffffff', NULL, 0.00, 0.00, NOW(), NOW()),     -- New provider: No earnings yet
+    ('99999999-aaaa-bbbb-cccc-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddddddd', NULL, 750.00, 0.00, NOW(), NOW()),   -- Tier 3 Provider A: Some earnings
+    ('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', NULL, 500.00, 0.00, NOW(), NOW());   -- Tier 3 Provider B: Limited earnings
 
 -- Add some dummy transactions with different states
 INSERT INTO transactions (
@@ -196,7 +210,7 @@ INSERT INTO transactions (
     -- Completed transactions
     (
         gen_random_uuid(),
-        '11111111-1111-1111-1111-111111111111',
+        'cccccccc-cccc-cccc-cccc-cccccccccccc',
         'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         'hmac_test_1',
         'gpt-4-turbo',
@@ -214,7 +228,7 @@ INSERT INTO transactions (
     ),
     (
         gen_random_uuid(),
-        '22222222-2222-2222-2222-222222222222',
+        'dddddddd-dddd-dddd-dddd-dddddddddddd',
         'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
         'hmac_test_2',
         'gpt-3.5-turbo',
@@ -233,7 +247,7 @@ INSERT INTO transactions (
     -- Pending transaction (for HMAC validation testing)
     (
         gen_random_uuid(),
-        '33333333-3333-3333-3333-333333333333',
+        '77777777-7777-7777-7777-777777777777',
         'cccccccc-cccc-cccc-cccc-cccccccccccc',
         'test_pending_hmac',
         'mistral-medium',
@@ -252,7 +266,7 @@ INSERT INTO transactions (
     -- Failed transaction
     (
         gen_random_uuid(),
-        '11111111-1111-1111-1111-111111111111',
+        'cccccccc-cccc-cccc-cccc-cccccccccccc',
         'dddddddd-dddd-dddd-dddd-dddddddddddd',
         'hmac_test_failed',
         'llama-2',
@@ -271,7 +285,7 @@ INSERT INTO transactions (
     -- Multi-provider transaction (showing provider selection)
     (
         gen_random_uuid(),
-        '22222222-2222-2222-2222-222222222222',
+        'dddddddd-dddd-dddd-dddd-dddddddddddd',
         'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         'hmac_test_multi',
         'claude-3-opus',
@@ -290,7 +304,7 @@ INSERT INTO transactions (
     -- Transaction in payment state (waiting for payment processing)
     (
         gen_random_uuid(),
-        '11111111-1111-1111-1111-111111111111',
+        'cccccccc-cccc-cccc-cccc-cccccccccccc',
         'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
         'hmac_payment_pending',
         'gpt-3.5-turbo',
@@ -309,7 +323,7 @@ INSERT INTO transactions (
     UNION ALL
     SELECT
         gen_random_uuid(),
-        '11111111-1111-1111-1111-111111111111'::uuid,
+        'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid,
         'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid,
         'hmac_payment_test_' || generate_series::text,
         'gpt-3.5-turbo',

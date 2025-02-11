@@ -15,37 +15,70 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Balance represents a user's balance
-type Balance struct {
+// Provider represents a provider instance
+type Provider struct {
+	ID              uuid.UUID `json:"id"`
 	UserID          uuid.UUID `json:"user_id"`
-	AvailableAmount float64   `json:"available_amount"`
-	HeldAmount      float64   `json:"held_amount"`
+	Name            string    `json:"name"`
+	IsAvailable     bool      `json:"is_available"`
+	LastHealthCheck time.Time `json:"last_health_check"`
+	HealthStatus    string    `json:"health_status"`
+	Tier            int       `json:"tier"`
+	Paused          bool      `json:"paused"`
+	APIURL          string    `json:"api_url"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-// APIKey represents an API key
+// Consumer represents a consumer instance
+type Consumer struct {
+	ID                   uuid.UUID `json:"id"`
+	UserID               uuid.UUID `json:"user_id"`
+	Name                 string    `json:"name"`
+	MaxInputPriceTokens  float64   `json:"max_input_price_tokens"`
+	MaxOutputPriceTokens float64   `json:"max_output_price_tokens"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+// Balance represents a provider or consumer balance
+type Balance struct {
+	ID              uuid.UUID  `json:"id"`
+	ProviderID      *uuid.UUID `json:"provider_id,omitempty"`
+	ConsumerID      *uuid.UUID `json:"consumer_id,omitempty"`
+	AvailableAmount float64    `json:"available_amount"`
+	HeldAmount      float64    `json:"held_amount"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+// APIKey represents an API key for a provider or consumer
 type APIKey struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"user_id"`
-	APIKey    string    `json:"api_key"`
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         uuid.UUID  `json:"id"`
+	ProviderID *uuid.UUID `json:"provider_id,omitempty"`
+	ConsumerID *uuid.UUID `json:"consumer_id,omitempty"`
+	APIKey     string     `json:"api_key"`
+	IsActive   bool       `json:"is_active"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
 // CreateUserRequest represents a request to create a new user
 type CreateUserRequest struct {
 	Type     string  `json:"type" validate:"required,oneof=consumer provider"`
 	Username string  `json:"username" validate:"required"`
+	Name     string  `json:"name" validate:"required"`
 	Balance  float64 `json:"balance" validate:"required,min=0"`
+	APIURL   string  `json:"api_url,omitempty"` // Only for providers
 }
 
 // CreateUserResponse represents the response to a create user request
 type CreateUserResponse struct {
-	User    User    `json:"user"`
-	APIKey  string  `json:"api_key"`
-	Balance Balance `json:"balance"`
+	User     User      `json:"user"`
+	Provider *Provider `json:"provider,omitempty"`
+	Consumer *Consumer `json:"consumer,omitempty"`
+	APIKey   string    `json:"api_key"`
+	Balance  Balance   `json:"balance"`
 }
 
 // ValidateAPIKeyRequest represents a request to validate an API key
@@ -55,17 +88,19 @@ type ValidateAPIKeyRequest struct {
 
 // ValidateAPIKeyResponse represents the response to a validate API key request
 type ValidateAPIKeyResponse struct {
-	Valid            bool      `json:"valid"`
-	UserID           uuid.UUID `json:"user_id,omitempty"`
-	UserType         string    `json:"user_type,omitempty"`
-	AvailableBalance float64   `json:"available_balance,omitempty"`
-	HeldBalance      float64   `json:"held_balance,omitempty"`
+	Valid            bool       `json:"valid"`
+	UserID           uuid.UUID  `json:"user_id,omitempty"`
+	ProviderID       *uuid.UUID `json:"provider_id,omitempty"`
+	ConsumerID       *uuid.UUID `json:"consumer_id,omitempty"`
+	UserType         string     `json:"user_type,omitempty"`
+	AvailableBalance float64    `json:"available_balance,omitempty"`
+	HeldBalance      float64    `json:"held_balance,omitempty"`
 }
 
-// HoldDepositRequest represents a request to place a hold on a user's balance
+// HoldDepositRequest represents a request to place a hold on a balance
 type HoldDepositRequest struct {
-	UserID uuid.UUID `json:"user_id" validate:"required"`
-	Amount float64   `json:"amount" validate:"required,min=0"`
+	ConsumerID uuid.UUID `json:"consumer_id" validate:"required"`
+	Amount     float64   `json:"amount" validate:"required,min=0"`
 }
 
 // HoldDepositResponse represents the response to a hold deposit request
@@ -74,10 +109,10 @@ type HoldDepositResponse struct {
 	Balance Balance `json:"balance"`
 }
 
-// ReleaseHoldRequest represents a request to release a hold on a user's balance
+// ReleaseHoldRequest represents a request to release a hold on a balance
 type ReleaseHoldRequest struct {
-	UserID uuid.UUID `json:"user_id" validate:"required"`
-	Amount float64   `json:"amount" validate:"required,min=0"`
+	ConsumerID uuid.UUID `json:"consumer_id" validate:"required"`
+	Amount     float64   `json:"amount" validate:"required,min=0"`
 }
 
 // ReleaseHoldResponse represents the response to a release hold request

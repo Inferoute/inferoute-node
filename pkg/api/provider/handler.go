@@ -42,6 +42,7 @@ func (h *Handler) Register(e *echo.Echo) {
 
 	// Health push endpoint
 	g.POST("/health", h.PushHealth)
+	g.GET("/health", h.GetProviderHealth)
 
 	// Pause management
 	g.PUT("/pause", h.UpdatePauseStatus)
@@ -51,6 +52,9 @@ func (h *Handler) Register(e *echo.Echo) {
 
 	// Add the new filter route
 	g.GET("/health/providers/filter", h.FilterProviders)
+
+	// API URL management
+	g.PUT("/api_url", h.UpdateAPIURL)
 }
 
 // @Summary Add a new model for the provider
@@ -372,6 +376,104 @@ func (h *Handler) ValidateHMAC(c echo.Context) error {
 
 	if !response.Valid {
 		return c.JSON(http.StatusUnauthorized, response)
+	}
+
+	return c.JSON(http.StatusOK, response)
+}
+
+// UpdateAPIURLRequest represents the request to update a provider's API URL
+type UpdateAPIURLRequest struct {
+	APIURL string `json:"api_url" validate:"required,url"`
+}
+
+// UpdateAPIURLResponse represents the response after updating a provider's API URL
+type UpdateAPIURLResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+// @Summary Update provider API URL
+// @Description Update the API URL for the authenticated provider
+// @Tags Provider
+// @Accept json
+// @Produce json
+// @Param request body UpdateAPIURLRequest true "API URL update"
+// @Success 200 {object} UpdateAPIURLResponse
+// @Failure 400 {object} common.ErrorResponse
+// @Router /api/provider/api_url [put]
+func (h *Handler) UpdateAPIURL(c echo.Context) error {
+	var req UpdateAPIURLRequest
+	if err := c.Bind(&req); err != nil {
+		return common.ErrInvalidInput(fmt.Errorf("invalid request body: %w", err))
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		return common.ErrInvalidInput(err)
+	}
+
+	providerID := c.Get("user_id").(uuid.UUID)
+
+	if err := h.service.UpdateAPIURL(c.Request().Context(), providerID, req.APIURL); err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, UpdateAPIURLResponse{
+		Success: true,
+		Message: "API URL updated successfully",
+	})
+}
+
+// @Summary Get provider health status
+// @Description Get the current health status of the authenticated provider
+// @Tags Provider
+// @Accept json
+// @Produce json
+// @Success 200 {object} GetProviderHealthResponse
+// @Failure 401 {object} common.ErrorResponse
+// @Failure 500 {object} common.ErrorResponse
+// @Router /api/provider/health [get]
+func (h *Handler) GetProviderHealth(c echo.Context) error {
+	// Get provider ID from context (set by auth middleware)
+	providerID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return common.NewUnauthorizedError("Invalid or missing provider ID")
+	}
+
+	query := `
+		WITH latest_health AS (
+			SELECT DISTINCT ON (provider_id) provider_id, latency_ms, health_check_time
+			FROM provider_health_history
+			ORDER BY provider_id, health_check_time DESC
+		)
+		SELECT 
+			p.id,
+			u.username,
+			p.health_status,
+			p.tier,
+			p.is_available,
+			COALESCE(lh.latency_ms, 0) as latency_ms,
+			COALESCE(lh.health_check_time, NOW()) as last_health_check
+		FROM providers p
+		JOIN users u ON u.id = p.user_id
+		LEFT JOIN latest_health lh ON lh.provider_id = p.id
+		WHERE p.id = $1`
+
+	var response GetProviderHealthResponse
+	err := h.db.QueryRowContext(c.Request().Context(), query, providerID).Scan(
+		&response.ProviderID,
+		&response.Username,
+		&response.HealthStatus,
+		&response.Tier,
+		&response.IsAvailable,
+		&response.LatencyMs,
+		&response.LastHealthCheck,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return common.NewNotFoundError("Provider not found")
+		}
+		return common.NewInternalError("Failed to get provider health", err)
 	}
 
 	return c.JSON(http.StatusOK, response)

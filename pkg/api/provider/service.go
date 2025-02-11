@@ -219,13 +219,14 @@ func (s *Service) PublishHealthUpdate(ctx context.Context, message ProviderHealt
 // UpdatePauseStatus updates the pause status of a provider
 func (s *Service) UpdatePauseStatus(ctx context.Context, providerID uuid.UUID, paused bool) (*UpdatePauseResponse, error) {
 	query := `
-		UPDATE provider_status 
-		SET paused = $1
-		WHERE provider_id = $2
-		RETURNING provider_id, paused`
+		UPDATE providers 
+		SET paused = $1,
+		    updated_at = NOW()
+		WHERE id = $2
+		RETURNING paused`
 
 	var response UpdatePauseResponse
-	err := s.db.QueryRowContext(ctx, query, paused, providerID).Scan(&response.ProviderID, &response.Paused)
+	err := s.db.QueryRowContext(ctx, query, paused, providerID).Scan(&response.Paused)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, common.ErrNotFound(fmt.Errorf("provider not found"))
@@ -246,7 +247,7 @@ func (s *Service) ValidateHMAC(ctx context.Context, providerID uuid.UUID, req Va
 		`SELECT id, model_name
 		FROM transactions 
 		WHERE hmac = $1 
-		AND $2::uuid = ANY(providers)
+		AND provider_id = $2
 		AND status = 'pending'`,
 		req.HMAC,
 		providerID,
@@ -269,4 +270,29 @@ func (s *Service) ValidateHMAC(ctx context.Context, providerID uuid.UUID, req Va
 			"model_name": modelName,
 		},
 	}, nil
+}
+
+// UpdateAPIURL updates the provider's API URL
+func (s *Service) UpdateAPIURL(ctx context.Context, providerID uuid.UUID, apiURL string) error {
+	query := `
+		UPDATE providers 
+		SET api_url = $1,
+			updated_at = NOW()
+		WHERE id = $2`
+
+	result, err := s.db.ExecContext(ctx, query, apiURL, providerID)
+	if err != nil {
+		return common.ErrInternalServer(fmt.Errorf("failed to update API URL: %w", err))
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return common.ErrInternalServer(fmt.Errorf("failed to get rows affected: %w", err))
+	}
+
+	if rowsAffected == 0 {
+		return common.ErrNotFound(fmt.Errorf("provider not found"))
+	}
+
+	return nil
 }

@@ -76,3 +76,40 @@ type TriggerHealthChecksResponse struct {
 	ProvidersUpdated int `json:"providers_updated"`
 	TiersUpdated     int `json:"tiers_updated"`
 }
+
+// HealthyNodeResponse represents a healthy node in the response
+type HealthyNodeResponse struct {
+	ProviderID string `json:"provider_id"`
+	Username   string `json:"username"`
+	Tier       int    `json:"tier"`
+	Latency    int    `json:"latency_ms"`
+}
+
+// ProviderHealthResponse represents the health status of a provider
+type ProviderHealthResponse struct {
+	ProviderID      string    `json:"provider_id"`
+	Username        string    `json:"username"`
+	HealthStatus    string    `json:"health_status"`
+	Tier            int       `json:"tier"`
+	IsAvailable     bool      `json:"is_available"`
+	Latency         int       `json:"latency_ms"`
+	LastHealthCheck time.Time `json:"last_health_check"`
+}
+
+// FilterProvidersRequest represents the query parameters for filtering providers
+type FilterProvidersRequest struct {
+	ModelName string  `query:"model_name" validate:"required"`
+	Tier      *int    `query:"tier"`
+	MaxCost   float64 `query:"max_cost" validate:"required,gt=0"`
+}
+
+// FilterProvidersResponse represents a provider in the filtered list
+type FilterProvidersResponse struct {
+	ProviderID   string  `json:"provider_id"`
+	Username     string  `json:"username"`
+	Tier         int     `json:"tier"`
+	HealthStatus string  `json:"health_status"`
+	Latency      int     `json:"latency_ms"`
+	InputCost    float64 `json:"input_cost"`
+	OutputCost   float64 `json:"output_cost"`
+}

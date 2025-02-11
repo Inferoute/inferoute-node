@@ -66,10 +66,10 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 	// Get provider ID from API key
 	var providerID uuid.UUID
 	err := s.db.QueryRowContext(ctx,
-		`SELECT u.id 
-		FROM users u
-		JOIN api_keys ak ON u.id = ak.user_id
-		WHERE ak.api_key = $1 AND u.type = 'provider'`,
+		`SELECT p.id
+		FROM providers p
+		JOIN api_keys ak ON ak.provider_id = p.id
+		WHERE ak.api_key = $1 AND ak.is_active = true`,
 		msg.APIKey,
 	).Scan(&providerID)
 	if err != nil {
@@ -131,12 +131,12 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 
 		// Update provider status
 		_, err = tx.ExecContext(ctx,
-			`UPDATE provider_status 
+			`UPDATE providers 
 			SET health_status = $1,
 				last_health_check = NOW(),
 				is_available = $2,
 				updated_at = NOW()
-			WHERE provider_id = $3`,
+			WHERE id = $3`,
 			healthStatus,
 			healthStatus != HealthStatusRed,
 			providerID,
@@ -184,26 +184,26 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 
 // CheckStaleProviders checks and updates providers that haven't sent a health check recently
 func (s *Service) CheckStaleProviders(ctx context.Context) (int, error) {
-	result, err := s.db.ExecContext(ctx,
-		`UPDATE provider_status 
-		SET health_status = $1,
-			is_available = false,
-			updated_at = NOW()
-		WHERE last_health_check < NOW() - $2::interval
-		AND health_status != $1`,
-		HealthStatusRed,
-		healthCheckTimeout.String(),
-	)
-	if err != nil {
-		return 0, fmt.Errorf("error updating stale providers: %w", err)
-	}
+	return s.db.ExecuteTxInt(ctx, func(tx *sql.Tx) (int, error) {
+		// Update stale providers to unavailable
+		result, err := tx.ExecContext(ctx,
+			`UPDATE providers
+			SET is_available = false,
+				updated_at = NOW()
+			WHERE last_health_check < NOW() - INTERVAL '5 minutes'
+				AND is_available = true
+				AND NOT paused`)
+		if err != nil {
+			return 0, fmt.Errorf("error updating stale providers: %w", err)
+		}
 
-	count, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("error getting affected rows: %w", err)
-	}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return 0, fmt.Errorf("error getting affected rows: %w", err)
+		}
 
-	return int(count), nil
+		return int(affected), nil
+	})
 }
 
 // UpdateProviderTiers updates provider tiers based on their health history
@@ -226,7 +226,7 @@ func (s *Service) UpdateProviderTiers(ctx context.Context) (int, error) {
 		WHERE health_check_time > NOW() - INTERVAL '720 hour'
 		GROUP BY provider_id
 	)
-	UPDATE provider_status ps
+	UPDATE providers p
 	SET 
 		tier = CASE
 			WHEN hs.health_percentage >= 0.99 THEN 1
@@ -235,18 +235,18 @@ func (s *Service) UpdateProviderTiers(ctx context.Context) (int, error) {
 		END,
 		updated_at = NOW()
 	FROM health_stats hs
-	WHERE ps.provider_id = hs.provider_id
+	WHERE p.id = hs.provider_id
 	AND hs.total_checks > 0
 	AND (
 		CASE
 			WHEN hs.health_percentage >= 0.99 THEN 1
 			WHEN hs.health_percentage >= 0.95 THEN 2
 			ELSE 3
-		END != ps.tier
+		END != p.tier
 	)
-	RETURNING ps.provider_id, 
+	RETURNING p.id, 
 		hs.health_percentage,
-		ps.tier as new_tier,
+		p.tier as new_tier,
 		hs.green_checks,
 		hs.total_checks`
 
@@ -289,49 +289,56 @@ func (s *Service) UpdateProviderTiers(ctx context.Context) (int, error) {
 
 // GetHealthyNodes returns a list of healthy nodes that match the criteria
 func (s *Service) GetHealthyNodes(ctx context.Context, req GetHealthyNodesRequest) (*GetHealthyNodesResponse, error) {
+	var response GetHealthyNodesResponse
+
+	// Query healthy providers that match the criteria
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT 
-			u.id,
+			p.id,
 			u.username,
 			pm.input_price_tokens,
 			pm.output_price_tokens,
-			ps.tier,
-			ps.health_status
-		FROM users u
-		JOIN provider_status ps ON u.id = ps.provider_id
-		JOIN provider_models pm ON u.id = pm.provider_id
-		WHERE pm.model_name = $1
-		AND pm.is_active = true
-		AND ps.is_available = true
-		AND ps.paused = false
-		AND ps.tier <= $2
-		AND pm.input_price_tokens <= $3
-		AND pm.output_price_tokens <= $3
-		ORDER BY ps.tier ASC, ps.last_health_check DESC`,
-		req.ModelName,
+			p.tier,
+			p.health_status
+		FROM providers p
+		JOIN users u ON u.id = p.user_id
+		JOIN provider_models pm ON pm.provider_id = p.id
+		WHERE p.is_available = true
+			AND NOT p.paused
+			AND p.health_status != 'red'
+			AND p.tier <= $1
+			AND pm.model_name = $2
+			AND pm.is_active = true
+			AND (pm.input_price_tokens <= $3 AND pm.output_price_tokens <= $3)
+		ORDER BY p.tier ASC, p.last_health_check DESC`,
 		req.Tier,
+		req.ModelName,
 		req.MaxCost,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error getting healthy nodes: %w", err)
+		return nil, fmt.Errorf("error querying healthy nodes: %w", err)
 	}
 	defer rows.Close()
 
-	var nodes []HealthyNode
 	for rows.Next() {
 		var node HealthyNode
-		if err := rows.Scan(
+		err := rows.Scan(
 			&node.ProviderID,
 			&node.Username,
 			&node.InputPriceTokens,
 			&node.OutputPriceTokens,
 			&node.Tier,
 			&node.HealthStatus,
-		); err != nil {
-			return nil, fmt.Errorf("error scanning healthy node: %w", err)
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning row: %w", err)
 		}
-		nodes = append(nodes, node)
+		response.Nodes = append(response.Nodes, node)
 	}
 
-	return &GetHealthyNodesResponse{Nodes: nodes}, nil
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return &response, nil
 }

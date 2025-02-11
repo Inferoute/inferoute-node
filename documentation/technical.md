@@ -1,5 +1,3 @@
-
-
 NAMES:
 
 Inferoute
@@ -64,38 +62,41 @@ The main orchestrator of our application.
 
 ## 3.  Authentication Service (Go) - DONE !!!!  (requires INTERNAL_API_KEY so only authorized internal go services can use these APIs)
 
-- **Role:** VManages user authentication, API key validation, and deposit handling. Ensures users have sufficient balance for operations and provides deposit hold/release functionality for transaction safety.
+- **Role:** Manages user authentication, API key validation, and deposit handling for both consumers and providers. Ensures users have sufficient balance for operations and provides deposit hold/release functionality for transaction safety.
 
 - **Endpoints (HTTP/JSON):**
 
 POST /api/auth/users
-	Create a new user account with API key
-	Generates a unique API key for the user
-	Sets initial deposit balance if provided
-	Returns user ID and API key
+  - Create a new user account with API key
+  - Requires user type (consumer/provider)
+  - Generates a unique API key for the user
+  - Creates associated consumer or provider record
+  - Sets initial deposit balance if provided (for consumers)
+  - Returns user ID and API key
 
 POST /api/auth/validate
-	- Validates API key and checks user's available balance
-	- Ensures minimum balance requirement ($1.00)
-	- Returns user details and available balance
-	- Authentication: API key required in Bearer token
-	- Response includes:
-		- User ID
-		- Available balance
-		- Account status
-
+  - Validates API key and checks user's details
+  - For consumers: ensures minimum balance requirement ($1.00)
+  - For providers: verifies active status
+  - Returns user details and type-specific information
+  - Authentication: API key required in Bearer token
+  - Response includes:
+    - User ID and type
+    - For consumers: available balance and account status
+    - For providers: tier and health status
 
 POST /api/auth/hold
-	- Places a temporary hold on user's deposit of $1
-	- Used before processing transactions
-	- Prevents double-spending
-	- Authentication: API key required
-
+  - Places a temporary hold on consumer's deposit of $1
+  - Only applicable for consumer accounts
+  - Used before processing transactions
+  - Prevents double-spending
+  - Authentication: API key required
 
 POST /api/auth/release
-	- Releases a previously held deposit of $1.00
-	- Used after successful transaction completion
-	- Authentication: API key required
+  - Releases a previously held deposit of $1.00
+  - Only applicable for consumer accounts
+  - Used after successful transaction completion
+  - Authentication: API key required
 
 
 
@@ -134,6 +135,19 @@ POST /api/auth/release
 - PUT /api/provider/pause
 	- Update provider's pause status (true/false)
 	- When paused, provider won't receive new requests
+	- Returns simplified response with just pause status
+	- Authentication: Provider API key required
+
+- GET /api/provider/health
+	- Get the current health status of the authenticated provider
+	- Returns provider health details including:
+		- Provider ID
+		- Username
+		- Health status (green/orange/red)
+		- Tier level
+		- Availability status
+		- Latest latency metrics
+		- Last health check timestamp
 	- Authentication: Provider API key required
 
 - POST /api/provider/health
@@ -151,6 +165,14 @@ POST /api/auth/release
        - Validation status
        - Original request data (if valid)
        - Transaction ID (if valid)
+
+- PUT /api/provider/api_url
+    - Update provider's API URL endpoint
+    - Requires provider API key authentication
+    - Payload:
+      - New API URL
+    - Returns:
+      - Success status and message
 
 Create abnother API to allow providers to change their URL endpoint (container willd o this autopmactially)
 
@@ -226,7 +248,7 @@ Create abnother API to allow providers to change their URL endpoint (container w
   Repsonse from provider is prited to console. We need to send to Orchestrator once build.
 
 
-## 6.  Payment Processing Service (Go) with RabbitMQ
+## 6.  Payment Processing Service (Go) with RabbitMQ - DONE
 
 -  **Role:** Handles the asynchronous financial operations after the main workflow is complete.
 
@@ -350,6 +372,7 @@ https://github.com/lm-sys/RouteLLM
 https://arxiv.org/abs/2406.18665
 
 - See if we can implement this so that users don't specify a Model and we choose the best/cheapest model based on the request.
+- Allow a user to set a strong model and a weaker model and we can use this to route requests, based on their incoming text.
 
 ### 14. Documentation using fern
 
@@ -376,71 +399,97 @@ Providers
 
 # Revised Request-Response Workflow
 
-## 1.  Consumer Request Initiation:
+## 1. Consumer Request Initiation:
+- Consumer sends a request to the OpenAI-compatible endpoints (/v1/chat/completions, /v1/completions)
+- Request includes API key in Authorization header (Bearer format) and model-specific parameters
+- Request is received by Nginx which routes to the Orchestrator service
 
- - The consumer sends a POST /process request (with API key and request data) to OpenSentry Nginx. Request will be based on the OpenAI API standard so the API-KEY will be in Authorization: Bearer $API_KEY
+## 2. Authentication & Validation:
+- Orchestrator validates the API key through the Auth Service (/api/auth/validate)
+- Validates consumer exists and has sufficient balance
+- Places a $1 holding deposit via Auth Service (/api/auth/hold)
+- Verifies consumer's price limits for the requested model
 
-## 2.  Orchestration Start:
+## 3. Provider Selection:
+- Queries Provider Health Service for available providers matching:
+  - Requested model
+  - Consumer's maximum price constraints
+  - Health status (green/orange)
+  - Provider tier requirements
+- Selects optimal provider based on price, latency, and tier
 
--  OpenSentry Nginx forwards the request to the Orchestrator. 
+## 4. Transaction Initialization:
+- Creates a transaction record with 'pending' status
+- Generates HMAC for request validation
+- Records initial transaction details (consumer, provider, model, pricing)
 
-## 3.  Authentication & Fund Check:
+## 5. Request Processing:
+- Forwards request to Provider Communication Service with:
+  - Provider's URL
+  - HMAC
+  - Original request data
+  - Model name
+- Provider Communication Service sends request to provider
+- Provider validates HMAC via Provider Management Service
+- Provider processes request and returns response
 
--  The Orchestrator calls the Authentication Service to validate the API key and verify that the consumer has at least $1.
+## 6. Response Handling:
+- Provider Communication Service receives response
+- Returns response data, latency metrics, and token counts to Orchestrator
+- Orchestrator immediately forwards response to consumer
 
-- If validation fails, the Orchestrator returns an error response immediately via the proxy.
+## 7. Transaction Finalization:
+- Updates transaction with:
+  - Total input/output tokens
+  - Latency metrics
+  - Changes status to 'payment'
+- Publishes payment message to RabbitMQ with:
+  - Consumer/Provider IDs
+  - Token counts
+  - Pricing information
+  - Latency data
 
--  If valid, the Orchestrator (or Authentication Service) performs holding deposit of $1. This is done on cockcroachDB against the consumers user row in the table. To ensure that even if they consumer connects to another central node proxy ( as we might have multiple in the future) the holding deposit is aleady there. 
-
-## 4.  HMAC Generation:
-
--  The Orchestrator invokes the HMAC Service to generate one or more HMACs using the consumer's API key, first vew bytes of the request data, and a timestamp.
-
--  The generated HMAC(s) are stored in CockroachDB.
-
-## 5.  Provider Selection:
-
--  The Orchestrator queries the Provider Management Service for a list of healthy providers (e.g., returns a list of three). 
-
-## 6.  Dispatch to Providers:
-
--  The Orchestrator calls the Provider Communication Service's POST /send_requests endpoint, passing along the consumer's request data, the HMAC(s), and the selected providers.
-
--  The Provider Communication Service forwards the requests to these providers (using HTTP/JSON).
-
-## 7.  Provider Response Handling:
-
-- Providers first check HMAC is valid by passing the HMAC back to Provider Communication Service /post validate_hmac if valid then
-
--  As providers responds the Provider Communication Service collects the responses.
-
--  The first valid provider response is identified as the winner. 
-
--  The Provider Communication Service sends the winning response back to the Orchestrator via its POST /receive_response endpoint.
-
-## 8.  Response Delivery:
-
-• The Orchestrator, upon receiving the winning provider's response, immediately sends this final response back to OpenSentry Nginx, which then delivers it to the consumer.
-
-## 9.  Asynchronous Payment Processing:
-
--  Simultaneously, the Orchestrator (or Provider Communication Service) publishes a payment task message to a designated RabbitMQ queue. This message includes details like:
-
-	-  Consumer ID
-	- Provider ID
-	- HMAC
-	- Token input and output counts
-	-  Latency information
-	-  Timestamp
-	-  The Payment Processing Service later consumes these messages and performs:
-	-  Debiting the consumer (according to provider pricing parameters)
-	-  Crediting the provider
-	-  Calculating tokens per second
-	-  Releasing the $1 holding deposit
- 
+## 8. Asynchronous Payment Processing:
+- Payment Processing Service consumes RabbitMQ message
+- Calculates:
+  - Tokens per second
+  - Consumer cost
+  - Provider earnings
+  - Service fee (5%)
+- Updates balances:
+  - Debits consumer
+  - Credits provider
+  - Releases holding deposit
+- Updates transaction status to 'completed'
 
 ## Techstack 
 
 - For all our GO microservices we will utilise the echo framework.
 - Opensentry as our NGINX
 - CockcroachDB as your database.
+
+# User Management
+
+The platform implements a flexible user management system where users can be associated with either consumers or providers:
+
+## User Types and Relationships
+
+- **Users**: Base entity containing authentication information
+  - Unique ID (UUID)
+  - Username
+  - Type (consumer/provider)
+  - Created/Updated timestamps
+  - Authentication details
+
+- **Consumers**: Extended user type for those consuming inference services
+  - Links to user via user_id
+  - Global settings for maximum price per 1M input/output tokens
+  - Balance and payment information
+  - Can override pricing settings per model via consumer_models table
+
+- **Providers**: Extended user type for those providing inference services
+  - Links to user via user_id
+  - Provider URL endpoint
+  - Health status and tier information
+  - Model configurations and pricing
+  - Earnings and performance metrics

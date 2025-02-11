@@ -42,7 +42,7 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*Creat
 		}
 
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO public.users (id, type, username, created_at, updated_at)
+			`INSERT INTO users (id, type, username, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5)`,
 			user.ID, user.Type, user.Username, user.CreatedAt, user.UpdatedAt,
 		)
@@ -50,47 +50,143 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*Creat
 			return fmt.Errorf("error creating user: %v", err)
 		}
 
-		// Generate API key
-		apiKey := APIKey{
-			ID:        uuid.New(),
-			UserID:    user.ID,
-			APIKey:    generateAPIKey(),
-			IsActive:  true,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
+		response.User = user
 
-		_, err = tx.ExecContext(ctx,
-			`INSERT INTO api_keys (id, user_id, api_key, is_active, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6)`,
-			apiKey.ID, apiKey.UserID, apiKey.APIKey, apiKey.IsActive, apiKey.CreatedAt, apiKey.UpdatedAt,
-		)
-		if err != nil {
-			return fmt.Errorf("error creating API key: %v", err)
-		}
+		// Create provider or consumer based on user type
+		if user.Type == "provider" {
+			provider := Provider{
+				ID:          uuid.New(),
+				UserID:      user.ID,
+				Name:        req.Name,
+				IsAvailable: false,
+				APIURL:      req.APIURL,
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
+			}
 
-		// Create initial balance
-		balance := Balance{
-			UserID:          user.ID,
-			AvailableAmount: req.Balance,
-			HeldAmount:      0,
-			CreatedAt:       time.Now(),
-			UpdatedAt:       time.Now(),
-		}
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO providers (id, user_id, name, is_available, api_url, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				provider.ID, provider.UserID, provider.Name, provider.IsAvailable,
+				provider.APIURL, provider.CreatedAt, provider.UpdatedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("error creating provider: %v", err)
+			}
 
-		_, err = tx.ExecContext(ctx,
-			`INSERT INTO balances (user_id, available_amount, held_amount, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5)`,
-			balance.UserID, balance.AvailableAmount, balance.HeldAmount, balance.CreatedAt, balance.UpdatedAt,
-		)
-		if err != nil {
-			return fmt.Errorf("error creating balance: %v", err)
-		}
+			response.Provider = &provider
 
-		response = CreateUserResponse{
-			User:    user,
-			APIKey:  apiKey.APIKey,
-			Balance: balance,
+			// Generate API key for provider
+			apiKey := APIKey{
+				ID:         uuid.New(),
+				ProviderID: &provider.ID,
+				APIKey:     generateAPIKey(),
+				IsActive:   true,
+				CreatedAt:  time.Now(),
+				UpdatedAt:  time.Now(),
+			}
+
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO api_keys (id, provider_id, api_key, is_active, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6)`,
+				apiKey.ID, apiKey.ProviderID, apiKey.APIKey, apiKey.IsActive,
+				apiKey.CreatedAt, apiKey.UpdatedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("error creating API key: %v", err)
+			}
+
+			response.APIKey = apiKey.APIKey
+
+			// Create balance for provider
+			balance := Balance{
+				ID:              uuid.New(),
+				ProviderID:      &provider.ID,
+				AvailableAmount: req.Balance,
+				HeldAmount:      0,
+				CreatedAt:       time.Now(),
+				UpdatedAt:       time.Now(),
+			}
+
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO balances (id, provider_id, available_amount, held_amount, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6)`,
+				balance.ID, balance.ProviderID, balance.AvailableAmount,
+				balance.HeldAmount, balance.CreatedAt, balance.UpdatedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("error creating balance: %v", err)
+			}
+
+			response.Balance = balance
+
+		} else {
+			consumer := Consumer{
+				ID:                   uuid.New(),
+				UserID:               user.ID,
+				Name:                 req.Name,
+				MaxInputPriceTokens:  1.0, // Default values
+				MaxOutputPriceTokens: 1.0,
+				CreatedAt:            time.Now(),
+				UpdatedAt:            time.Now(),
+			}
+
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO consumers (id, user_id, name, max_input_price_tokens, max_output_price_tokens, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				consumer.ID, consumer.UserID, consumer.Name,
+				consumer.MaxInputPriceTokens, consumer.MaxOutputPriceTokens,
+				consumer.CreatedAt, consumer.UpdatedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("error creating consumer: %v", err)
+			}
+
+			response.Consumer = &consumer
+
+			// Generate API key for consumer
+			apiKey := APIKey{
+				ID:         uuid.New(),
+				ConsumerID: &consumer.ID,
+				APIKey:     generateAPIKey(),
+				IsActive:   true,
+				CreatedAt:  time.Now(),
+				UpdatedAt:  time.Now(),
+			}
+
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO api_keys (id, consumer_id, api_key, is_active, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6)`,
+				apiKey.ID, apiKey.ConsumerID, apiKey.APIKey, apiKey.IsActive,
+				apiKey.CreatedAt, apiKey.UpdatedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("error creating API key: %v", err)
+			}
+
+			response.APIKey = apiKey.APIKey
+
+			// Create balance for consumer
+			balance := Balance{
+				ID:              uuid.New(),
+				ConsumerID:      &consumer.ID,
+				AvailableAmount: req.Balance,
+				HeldAmount:      0,
+				CreatedAt:       time.Now(),
+				UpdatedAt:       time.Now(),
+			}
+
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO balances (id, consumer_id, available_amount, held_amount, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6)`,
+				balance.ID, balance.ConsumerID, balance.AvailableAmount,
+				balance.HeldAmount, balance.CreatedAt, balance.UpdatedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("error creating balance: %v", err)
+			}
+
+			response.Balance = balance
 		}
 
 		return nil
@@ -108,37 +204,101 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 	var response ValidateAPIKeyResponse
 
 	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
-		var userID uuid.UUID
-		var userType string
-		var isActive bool
-		var availableBalance, heldBalance float64
-
+		// First try to find the API key in the api_keys table
+		var apiKey APIKey
 		err := tx.QueryRowContext(ctx,
-			`SELECT ak.user_id, u.type, ak.is_active, b.available_amount, b.held_amount
-			FROM api_keys ak
-			JOIN users u ON u.id = ak.user_id
-			JOIN balances b ON u.id = b.user_id
-			WHERE ak.api_key = $1`,
+			`SELECT id, provider_id, consumer_id, is_active 
+			FROM api_keys 
+			WHERE api_key = $1`,
 			req.APIKey,
-		).Scan(&userID, &userType, &isActive, &availableBalance, &heldBalance)
+		).Scan(&apiKey.ID, &apiKey.ProviderID, &apiKey.ConsumerID, &apiKey.IsActive)
 
 		if err == sql.ErrNoRows {
 			response = ValidateAPIKeyResponse{Valid: false}
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("error validating API key: %v", err)
+			return fmt.Errorf("error querying API key: %v", err)
 		}
 
-		response = ValidateAPIKeyResponse{
-			Valid:            isActive,
-			UserID:           userID,
-			UserType:         userType,
-			AvailableBalance: availableBalance,
-			HeldBalance:      heldBalance,
+		// API key exists but is not active
+		if !apiKey.IsActive {
+			response = ValidateAPIKeyResponse{Valid: false}
+			return nil
 		}
 
-		return nil
+		// If it's a provider API key
+		if apiKey.ProviderID != nil {
+			var provider Provider
+			var userID uuid.UUID
+			var userType string
+			var availableBalance, heldBalance float64
+
+			err = tx.QueryRowContext(ctx,
+				`SELECT p.id, p.user_id, u.type, COALESCE(b.available_amount, 0), COALESCE(b.held_amount, 0)
+				FROM providers p
+				JOIN users u ON u.id = p.user_id
+				LEFT JOIN balances b ON b.provider_id = p.id
+				WHERE p.id = $1`,
+				apiKey.ProviderID,
+			).Scan(&provider.ID, &userID, &userType, &availableBalance, &heldBalance)
+
+			if err == sql.ErrNoRows {
+				response = ValidateAPIKeyResponse{Valid: false}
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("error querying provider: %v", err)
+			}
+
+			response = ValidateAPIKeyResponse{
+				Valid:            true,
+				UserID:           userID,
+				ProviderID:       &provider.ID,
+				UserType:         userType,
+				AvailableBalance: availableBalance,
+				HeldBalance:      heldBalance,
+			}
+			return nil
+		}
+
+		// If it's a consumer API key
+		if apiKey.ConsumerID != nil {
+			var consumer Consumer
+			var userID uuid.UUID
+			var userType string
+			var availableBalance, heldBalance float64
+
+			err = tx.QueryRowContext(ctx,
+				`SELECT c.id, c.user_id, u.type, COALESCE(b.available_amount, 0), COALESCE(b.held_amount, 0)
+				FROM consumers c
+				JOIN users u ON u.id = c.user_id
+				LEFT JOIN balances b ON b.consumer_id = c.id
+				WHERE c.id = $1`,
+				apiKey.ConsumerID,
+			).Scan(&consumer.ID, &userID, &userType, &availableBalance, &heldBalance)
+
+			if err == sql.ErrNoRows {
+				response = ValidateAPIKeyResponse{Valid: false}
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("error querying consumer: %v", err)
+			}
+
+			response = ValidateAPIKeyResponse{
+				Valid:            true,
+				UserID:           userID,
+				ConsumerID:       &consumer.ID,
+				UserType:         userType,
+				AvailableBalance: availableBalance,
+				HeldBalance:      heldBalance,
+			}
+			return nil
+		}
+
+		// This should never happen as we have a CHECK constraint in the database
+		return fmt.Errorf("API key has neither provider_id nor consumer_id")
 	})
 
 	if err != nil {
@@ -148,23 +308,23 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 	return &response, nil
 }
 
-// HoldDeposit places a hold on a user's balance
+// HoldDeposit places a hold on a consumer's balance
 func (s *Service) HoldDeposit(ctx context.Context, req HoldDepositRequest) (*HoldDepositResponse, error) {
 	var response HoldDepositResponse
 
 	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
 		var balance Balance
 		err := tx.QueryRowContext(ctx,
-			`SELECT user_id, available_amount, held_amount, created_at, updated_at
+			`SELECT id, consumer_id, available_amount, held_amount, created_at, updated_at
 			FROM balances
-			WHERE user_id = $1
+			WHERE consumer_id = $1
 			FOR UPDATE`,
-			req.UserID,
-		).Scan(&balance.UserID, &balance.AvailableAmount, &balance.HeldAmount,
-			&balance.CreatedAt, &balance.UpdatedAt)
+			req.ConsumerID,
+		).Scan(&balance.ID, &balance.ConsumerID, &balance.AvailableAmount,
+			&balance.HeldAmount, &balance.CreatedAt, &balance.UpdatedAt)
 
 		if err == sql.ErrNoRows {
-			return common.ErrNotFound(fmt.Errorf("balance not found for user %s", req.UserID))
+			return common.ErrNotFound(fmt.Errorf("balance not found for consumer %s", req.ConsumerID))
 		}
 		if err != nil {
 			return fmt.Errorf("error fetching balance: %v", err)
@@ -181,8 +341,8 @@ func (s *Service) HoldDeposit(ctx context.Context, req HoldDepositRequest) (*Hol
 		_, err = tx.ExecContext(ctx,
 			`UPDATE balances
 			SET available_amount = $1, held_amount = $2, updated_at = $3
-			WHERE user_id = $4`,
-			balance.AvailableAmount, balance.HeldAmount, balance.UpdatedAt, balance.UserID,
+			WHERE id = $4`,
+			balance.AvailableAmount, balance.HeldAmount, balance.UpdatedAt, balance.ID,
 		)
 		if err != nil {
 			return fmt.Errorf("error updating balance: %v", err)
@@ -203,23 +363,23 @@ func (s *Service) HoldDeposit(ctx context.Context, req HoldDepositRequest) (*Hol
 	return &response, nil
 }
 
-// ReleaseHold releases a hold on a user's balance
+// ReleaseHold releases a hold on a consumer's balance
 func (s *Service) ReleaseHold(ctx context.Context, req ReleaseHoldRequest) (*ReleaseHoldResponse, error) {
 	var response ReleaseHoldResponse
 
 	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
 		var balance Balance
 		err := tx.QueryRowContext(ctx,
-			`SELECT user_id, available_amount, held_amount, created_at, updated_at
+			`SELECT id, consumer_id, available_amount, held_amount, created_at, updated_at
 			FROM balances
-			WHERE user_id = $1
+			WHERE consumer_id = $1
 			FOR UPDATE`,
-			req.UserID,
-		).Scan(&balance.UserID, &balance.AvailableAmount, &balance.HeldAmount,
-			&balance.CreatedAt, &balance.UpdatedAt)
+			req.ConsumerID,
+		).Scan(&balance.ID, &balance.ConsumerID, &balance.AvailableAmount,
+			&balance.HeldAmount, &balance.CreatedAt, &balance.UpdatedAt)
 
 		if err == sql.ErrNoRows {
-			return common.ErrNotFound(fmt.Errorf("balance not found for user %s", req.UserID))
+			return common.ErrNotFound(fmt.Errorf("balance not found for consumer %s", req.ConsumerID))
 		}
 		if err != nil {
 			return fmt.Errorf("error fetching balance: %v", err)
@@ -236,8 +396,8 @@ func (s *Service) ReleaseHold(ctx context.Context, req ReleaseHoldRequest) (*Rel
 		_, err = tx.ExecContext(ctx,
 			`UPDATE balances
 			SET available_amount = $1, held_amount = $2, updated_at = $3
-			WHERE user_id = $4`,
-			balance.AvailableAmount, balance.HeldAmount, balance.UpdatedAt, balance.UserID,
+			WHERE id = $4`,
+			balance.AvailableAmount, balance.HeldAmount, balance.UpdatedAt, balance.ID,
 		)
 		if err != nil {
 			return fmt.Errorf("error updating balance: %v", err)

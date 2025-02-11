@@ -79,6 +79,23 @@ type PaymentMessage struct {
 	Latency           int64     `json:"latency"`
 }
 
+// HoldDepositRequest represents a request to place a hold on a balance
+type HoldDepositRequest struct {
+	ConsumerID uuid.UUID `json:"consumer_id"`
+	Amount     float64   `json:"amount"`
+}
+
+// ReleaseHoldRequest represents a request to release a hold on a balance
+type ReleaseHoldRequest struct {
+	ConsumerID uuid.UUID `json:"consumer_id"`
+	Amount     float64   `json:"amount"`
+}
+
+// ValidateAPIKeyRequest represents a request to validate an API key
+type ValidateAPIKeyRequest struct {
+	APIKey string `json:"api_key"`
+}
+
 // Validate ensures either messages or prompt is provided
 func (r *OpenAIRequest) Validate() error {
 	if r.Messages == nil && r.Prompt == "" {

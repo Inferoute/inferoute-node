@@ -76,8 +76,7 @@ type UpdatePauseRequest struct {
 
 // UpdatePauseResponse represents the response after updating a provider's pause status
 type UpdatePauseResponse struct {
-	ProviderID uuid.UUID `json:"provider_id"`
-	Paused     bool      `json:"paused"`
+	Paused bool `json:"paused"`
 }
 
 // ProviderHealthPushModel represents a model in the health push data
@@ -111,4 +110,15 @@ type ValidateHMACResponse struct {
 	RequestData   map[string]interface{} `json:"request_data,omitempty"`
 	Error         string                 `json:"error,omitempty"`
 	TransactionID uuid.UUID              `json:"transaction_id,omitempty"`
+}
+
+// GetProviderHealthResponse represents the response for getting provider health
+type GetProviderHealthResponse struct {
+	ProviderID      string    `json:"provider_id"`
+	Username        string    `json:"username"`
+	HealthStatus    string    `json:"health_status"`
+	Tier            int       `json:"tier"`
+	IsAvailable     bool      `json:"is_available"`
+	LatencyMs       int       `json:"latency_ms"`
+	LastHealthCheck time.Time `json:"last_health_check"`
 }
