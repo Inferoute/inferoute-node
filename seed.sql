@@ -36,33 +36,33 @@ INSERT INTO api_keys (id, provider_id, api_key, is_active, created_at, updated_a
     ('66666666-6666-6666-6666-666666666666', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'test_key_new', true, NOW(), NOW());
 
 -- Create provider models
-INSERT INTO provider_models (id, provider_id, model_name, service_type, input_price_tokens, output_price_tokens, is_active, created_at, updated_at) VALUES
+INSERT INTO provider_models (id, provider_id, model_name, service_type, input_price_tokens, output_price_tokens, average_tps, transaction_count, is_active, created_at, updated_at) VALUES
     -- Tier 1 Provider (Premium models)
-    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'deepseek-r1:8b', 'ollama', 0.15, 0.3, true, NOW(), NOW()),
-    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'claude-3-opus', 'ollama', 0.15, 0.35, true, NOW(), NOW()),
-    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaac', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'gemini-pro', 'ollama', 0.8, 0.25, true, NOW(), NOW()),
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'deepseek-r1:8b', 'ollama', 0.15, 0.3, 35.5, 1250, true, NOW(), NOW()),
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'claude-3-opus', 'ollama', 0.15, 0.35, 42.8, 980, true, NOW(), NOW()),
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaac', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'gemini-pro', 'ollama', 0.8, 0.25, 38.2, 850, true, NOW(), NOW()),
 
     -- Tier 2 Provider A (Mix of models)
-    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'deepseek-r1:8b', 'ollama', 0.5, 0.15, true, NOW(), NOW()),
-    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbc', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'claude-2', 'ollama', 0.6, 0.18, true, NOW(), NOW()),
-    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbd', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'mistral-medium', 'ollama', 0.4, 0.12, true, NOW(), NOW()),
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'deepseek-r1:8b', 'ollama', 0.5, 0.15, 28.4, 750, true, NOW(), NOW()),
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbc', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'claude-2', 'ollama', 0.6, 0.18, 25.6, 620, true, NOW(), NOW()),
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbd', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'mistral-medium', 'ollama', 0.4, 0.12, 31.2, 580, true, NOW(), NOW()),
 
     -- Tier 2 Provider B
-    ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'deepseek-r1:8b', 'ollama', 0.45, 0.14, true, NOW(), NOW()),
-    ('cccccccc-cccc-cccc-cccc-ccccccccccca', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'mistral-small', 'ollama', 0.3, 0.9, true, NOW(), NOW()),
-    ('cccccccc-cccc-cccc-cccc-cccccccccccb', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama3.2', 'ollama', 0.2, 0.6, true, NOW(), NOW()),
+    ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'deepseek-r1:8b', 'ollama', 0.45, 0.14, 26.8, 480, true, NOW(), NOW()),
+    ('cccccccc-cccc-cccc-cccc-ccccccccccca', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'mistral-small', 'ollama', 0.3, 0.9, 33.5, 420, true, NOW(), NOW()),
+    ('cccccccc-cccc-cccc-cccc-cccccccccccb', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama3.2', 'ollama', 0.2, 0.6, 29.1, 390, true, NOW(), NOW()),
 
     -- Tier 3 Provider A (Basic models)
-    ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'deepseek-r1:32b', 'ollama', 0.2, 0.6, true, NOW(), NOW()),
-    ('dddddddd-dddd-dddd-dddd-ddddddddddde', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama3.2', 'ollama', 0.15, 0.45, true, NOW(), NOW()),
+    ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'deepseek-r1:32b', 'ollama', 0.2, 0.6, 22.4, 280, true, NOW(), NOW()),
+    ('dddddddd-dddd-dddd-dddd-ddddddddddde', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama3.2', 'ollama', 0.15, 0.45, 24.8, 250, true, NOW(), NOW()),
 
     -- Tier 3 Provider B
-    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'mistral-small', 'ollama', 0.18, 0.5, true, NOW(), NOW()),
-    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeef', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'llama3.2', 'ollama', 0.1, 0.3, true, NOW(), NOW()),
+    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'mistral-small', 'ollama', 0.18, 0.5, 20.5, 180, true, NOW(), NOW()),
+    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeef', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'llama3.2', 'ollama', 0.1, 0.3, 18.9, 150, true, NOW(), NOW()),
 
     -- New Provider (Starting with basic models)
-    ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'mistral-small', 'ollama', 0.2, 0.6, true, NOW(), NOW()),
-    ('ffffffff-ffff-ffff-ffff-fffffffffff0', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'llama3.2', 'ollama', 0.15, 0.45, true, NOW(), NOW());
+    ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'mistral-small', 'ollama', 0.2, 0.6, 15.2, 25, true, NOW(), NOW()),
+    ('ffffffff-ffff-ffff-ffff-fffffffffff0', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'llama3.2', 'ollama', 0.15, 0.45, 16.8, 18, true, NOW(), NOW());
 
 -- Create health history for the last 30 days
 -- Tier 1 Provider (99.9% uptime)

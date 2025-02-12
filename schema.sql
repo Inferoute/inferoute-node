@@ -102,6 +102,8 @@ CREATE TABLE IF NOT EXISTS provider_models (
     service_type STRING NOT NULL CHECK (service_type IN ('ollama', 'exolabs', 'llama_cpp')),
     input_price_tokens DECIMAL(18,8) NOT NULL,
     output_price_tokens DECIMAL(18,8) NOT NULL,
+    average_tps DECIMAL(18,8) DEFAULT 0,
+    transaction_count INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),

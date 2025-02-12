@@ -72,6 +72,9 @@ func validateConfig(cfg *Config) error {
 	if cfg.ServerPort == 0 {
 		return fmt.Errorf("server port is required")
 	}
+	if cfg.InternalAPIKey == "" {
+		return fmt.Errorf("internal API key is required")
+	}
 	return nil
 }
 

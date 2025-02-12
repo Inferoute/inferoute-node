@@ -24,41 +24,87 @@ This is our main entry point for consumers. Consumers will connect using a unive
 
 ## 2.  Orchestrator (GO)
 
-The main orchestrator of our application.
+The orchestrator is the central controller that coordinates the request workflow. It implements a sophisticated provider selection and request handling process.
 
-- **Role:** The central controller that coordinates the overall request workflow.
+### Main Flow (ProcessRequest):
 
-- **Responsibilities:**
+1. **API Key Validation & Balance Check**
+   - Validates consumer's API key via Auth Service (`/api/auth/validate`)
+   - Verifies sufficient balance (minimum $1.00)
+   - Retrieves available balance information
 
-	- Receives requests from Nginx via an API call.
+2. **Consumer Settings Resolution**
+   - Fetches consumer's price constraints from database
+   - Checks model-specific settings in `consumer_models` table first
+   - Falls back to global settings from `consumers` table if no model-specific settings exist
+   - Settings include maximum prices for input and output tokens
 
-	- Invokes the Authentication Service to validate the API key and check for sufficient funds using auth microservice -  /api/auth/validate  (requires INTERNAL_API_KEY). Also at this point we should check what the maximum a user is willing to pay for their inference for input and output, if a specific price is set for the requested model otherwise use the global settings.
-		- So we need a new table called consumers where such settings can be stored. Links to the users table. Allows user to set their maximum price per 1,000,0000 input tokens and per 1,000,000 output tokens.
-		- We also need a consumer_models table where user can set their minimum and maximum price per 1,000,000 input tokens and per 1,000,000 output tokens for a specific model. So by default the consumer will use the global settings but can override them for a specific model. 
-	
-	- Generates HMAC(s) for the request using common/hmac.go
+3. **Provider Selection**
+   - Queries Health Service for available providers (`/api/health/providers/filter`)
+   - Filters based on:
+     - Requested model availability
+     - Consumer's maximum price constraints
+     - Provider health status
+     - Provider tier
+   - Providers must have:
+     - Valid API URL
+     - Non-nil required fields
+     - Active status
+     - Compatible pricing
 
-	- Queries the Provider Management Service for a list of healthy providers using the model name and the maximum price per 1,000,000 input tokens and per 1,000,000 output tokens. So essentiallly we only spit out providers where the price is eqaual or lower to our amount. The consumer is always charged at the price of the provider they are connected to. 
+4. **Provider Scoring & Selection**
+   - Scores providers using weighted criteria:
+     - Price Score (70%): Inverse of total token price (input + output)
+     - Performance Score (30%): Average tokens per second (TPS)
+   - Selects top 3 providers ordered by score
+   - Uses first provider as primary, others as fallbacks
 
-	- We then need a little function that works out the best provider for the consumer based on price and latency. 
+5. **Transaction Management**
+   - Generates unique HMAC for request tracking
+   - Creates transaction record with 'pending' status
+   - Places $1.00 holding deposit via Auth Service
+   - Records provider prices, model, and transaction details
 
-    - Creates a transaction record in the database - initial transaction status is pending. Record the input and output price per 1,000,000 tokens, provider id, model name and HMAC.
+6. **Request Processing**
+   - Forwards request to Provider Communication Service
+   - Includes:
+     - Provider URL
+     - HMAC
+     - Original request data
+     - Model information
+   - Measures request latency
+   - Handles provider failures by trying fallback providers
 
-    - Initiates a holding deposit (deduct $1) for valid requests using auth microservice - /api/auth/hold
+7. **Response & Cleanup**
+   - Returns provider response to consumer
+   - Releases holding deposit
+   - Updates transaction with:
+     - Input/output token counts
+     - Latency metrics
+     - Changes status to 'payment'
 
-	- Calls the Provider Communication Service to dispatch the request (with HMAC) to the provider. We send provider_url, request data, model name, HMAC to the provider communication service via /api/provider_comms/send_requests
+8. **Payment Processing**
+   - Publishes payment message to RabbitMQ
+   - Includes:
+     - Transaction details
+     - Token counts
+     - Price information
+     - Latency metrics
+   - Payment service handles actual fund transfers asynchronously
 
-	- Receives the winning provider's response from the Provider Communication Service.
+### Error Handling:
+- Graceful handling of provider failures with fallback options
+- Automatic holding deposit release on errors
+- Comprehensive error logging
+- Proper HTTP status codes for different error scenarios
 
-	- Forwards that response back to the Nginx proxy which should then send it back to the consumer.
-
-	- Initiates a release deposit using auth microservice - /api/auth/release
-
-	- Updates the transaction record in the database with the  total input tokens, total output tokens, latency and changes status to payment. This is so the payment processing service can pick it up. 
-	also if anyhtig gets missed we can double check it using payment processing service. 
-
-	- Publishes payment-related details to RabbitMQ for asynchronous processing by the Payment Processing Service. 
-
+### Key Features:
+- Smart provider selection based on price and performance
+- Fallback provider support
+- Transaction tracking
+- Asynchronous payment processing
+- Model-specific price constraints
+- Holding deposit system for transaction safety
 
 ## 3.  Authentication Service (Go) - DONE !!!!  (requires INTERNAL_API_KEY so only authorized internal go services can use these APIs)
 

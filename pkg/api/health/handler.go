@@ -183,15 +183,9 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 	query := `
 		WITH healthy_providers AS (
 			SELECT p.id as provider_id, p.tier, p.health_status, 
-				   u.username,
-				   COALESCE(phh.latency_ms, 0) as latency_ms
+				   u.username, COALESCE(p.api_url, '') as api_url
 			FROM providers p
 			JOIN users u ON u.id = p.user_id
-			LEFT JOIN (
-				SELECT DISTINCT ON (provider_id) provider_id, latency_ms
-				FROM provider_health_history
-				ORDER BY provider_id, health_check_time DESC
-			) phh ON phh.provider_id = p.id
 			WHERE p.health_status != 'red'
 			AND p.is_available = true
 			AND NOT p.paused
@@ -202,16 +196,17 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 			hp.username,
 			hp.tier,
 			hp.health_status,
-			hp.latency_ms,
+			hp.api_url,
 			pm.input_price_tokens,
-			pm.output_price_tokens
+			pm.output_price_tokens,
+			pm.average_tps
 		FROM healthy_providers hp
 		JOIN provider_models pm ON pm.provider_id = hp.provider_id
 		WHERE pm.model_name = $2
 		AND pm.is_active = true
 		AND pm.input_price_tokens <= $3
 		AND pm.output_price_tokens <= $3
-		ORDER BY hp.tier ASC, hp.latency_ms ASC;
+		ORDER BY hp.tier ASC, pm.average_tps DESC;
 	`
 
 	rows, err := h.service.db.QueryContext(c.Request().Context(), query, req.Tier, req.ModelName, req.MaxCost)
@@ -228,9 +223,10 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 			&p.Username,
 			&p.Tier,
 			&p.HealthStatus,
-			&p.Latency,
+			&p.APIURL,
 			&p.InputCost,
 			&p.OutputCost,
+			&p.AverageTPS,
 		)
 		if err != nil {
 			return common.NewInternalError("error scanning results", err)

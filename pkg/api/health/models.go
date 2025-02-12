@@ -109,7 +109,8 @@ type FilterProvidersResponse struct {
 	Username     string  `json:"username"`
 	Tier         int     `json:"tier"`
 	HealthStatus string  `json:"health_status"`
-	Latency      int     `json:"latency_ms"`
+	APIURL       string  `json:"api_url"`
 	InputCost    float64 `json:"input_cost"`
 	OutputCost   float64 `json:"output_cost"`
+	AverageTPS   float64 `json:"average_tps"`
 }

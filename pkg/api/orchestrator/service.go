@@ -15,17 +15,21 @@ import (
 	"github.com/sentnl/inferoute-node/pkg/rabbitmq"
 )
 
+// Service handles orchestration of requests
 type Service struct {
-	db     *db.DB
-	logger *common.Logger
-	rmq    *rabbitmq.Client
+	db             *db.DB
+	logger         *common.Logger
+	rmq            *rabbitmq.Client
+	internalAPIKey string
 }
 
-func NewService(db *db.DB, logger *common.Logger, rmq *rabbitmq.Client) *Service {
+// NewService creates a new orchestration service
+func NewService(db *db.DB, logger *common.Logger, rmq *rabbitmq.Client, internalAPIKey string) *Service {
 	return &Service{
-		db:     db,
-		logger: logger,
-		rmq:    rmq,
+		db:             db,
+		logger:         logger,
+		rmq:            rmq,
+		internalAPIKey: internalAPIKey,
 	}
 }
 
@@ -168,66 +172,79 @@ func (s *Service) getConsumerSettings(ctx context.Context, consumerID uuid.UUID,
 
 // getHealthyProviders gets a list of healthy providers that support the requested model
 func (s *Service) getHealthyProviders(ctx context.Context, model string, settings *ConsumerSettings) ([]ProviderInfo, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT 
-			p.id,
-			p.api_url,
-			pm.input_price_tokens,
-			pm.output_price_tokens,
-			p.tier,
-			p.health_status,
-			COALESCE(phh.latency_ms, 0) as latency
-		FROM providers p
-		JOIN provider_models pm ON p.id = pm.provider_id
-		LEFT JOIN (
-			SELECT provider_id, latency_ms
-			FROM provider_health_history
-			WHERE health_check_time > NOW() - INTERVAL '5 minutes'
-			ORDER BY health_check_time DESC
-			LIMIT 1
-		) phh ON p.id = phh.provider_id
-		WHERE pm.model_name = $1
-		AND p.is_available = true
-		AND p.health_status != 'red'
-		AND NOT p.paused
-		AND pm.is_active = true
-		AND pm.input_price_tokens <= $2
-		AND pm.output_price_tokens <= $3`,
-		model,
-		settings.MaxInputPriceTokens,
-		settings.MaxOutputPriceTokens,
+	// Calculate max cost from input and output prices
+	maxCost := settings.MaxInputPriceTokens + settings.MaxOutputPriceTokens
+
+	// Make request to health service with query parameters
+	response, err := common.MakeInternalRequestRaw(
+		ctx,
+		"GET",
+		common.ProviderHealthService,
+		fmt.Sprintf("/api/health/providers/filter?model_name=%s&max_cost=%f", model, maxCost),
+		nil, // No body for GET request
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error getting providers: %w", err)
+		return nil, fmt.Errorf("error getting providers from health service: %w", err)
 	}
-	defer rows.Close()
 
-	var providers []ProviderInfo
-	for rows.Next() {
-		var p ProviderInfo
-		err := rows.Scan(
-			&p.ProviderID,
-			&p.URL,
-			&p.InputPriceTokens,
-			&p.OutputPriceTokens,
-			&p.Tier,
-			&p.HealthStatus,
-			&p.Latency,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error scanning provider: %w", err)
+	// Parse response as array
+	var providersData []map[string]interface{}
+	if err := json.Unmarshal(response, &providersData); err != nil {
+		return nil, fmt.Errorf("error decoding response: %w", err)
+	}
+
+	s.logger.Info("Got response from health service: %v", string(response))
+	s.logger.Info("Number of providers returned: %d", len(providersData))
+
+	// Convert response to ProviderInfo slice
+	providers := make([]ProviderInfo, 0, len(providersData))
+	for _, providerMap := range providersData {
+		// Skip if any required field is nil
+		if providerMap["provider_id"] == nil ||
+			providerMap["input_cost"] == nil ||
+			providerMap["output_cost"] == nil ||
+			providerMap["tier"] == nil ||
+			providerMap["health_status"] == nil ||
+			providerMap["average_tps"] == nil ||
+			providerMap["api_url"] == nil {
+			s.logger.Error("Skipping provider with nil fields: %v", providerMap)
+			continue
 		}
-		providers = append(providers, p)
+
+		// Skip if API URL is empty
+		apiURL := providerMap["api_url"].(string)
+		if apiURL == "" {
+			s.logger.Error("Skipping provider %s with empty API URL", providerMap["provider_id"])
+			continue
+		}
+
+		provider := ProviderInfo{
+			ProviderID:        uuid.MustParse(providerMap["provider_id"].(string)),
+			URL:               apiURL,
+			InputPriceTokens:  providerMap["input_cost"].(float64),
+			OutputPriceTokens: providerMap["output_cost"].(float64),
+			Tier:              int(providerMap["tier"].(float64)),
+			HealthStatus:      providerMap["health_status"].(string),
+			AverageTPS:        providerMap["average_tps"].(float64),
+		}
+		providers = append(providers, provider)
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating providers: %w", err)
+	if len(providers) == 0 {
+		s.logger.Error("No valid providers found after filtering. Raw response: %v", string(response))
+		return nil, fmt.Errorf("no valid providers available for model %s within price constraints", model)
 	}
 
+	s.logger.Info("Found %d valid providers after filtering", len(providers))
 	return providers, nil
 }
 
 func (s *Service) selectBestProviders(providers []ProviderInfo) []ProviderInfo {
+	if len(providers) == 0 {
+		s.logger.Error("selectBestProviders called with empty providers list")
+		return nil
+	}
+
 	// Create a slice to store provider scores
 	type scoredProvider struct {
 		provider ProviderInfo
@@ -235,17 +252,19 @@ func (s *Service) selectBestProviders(providers []ProviderInfo) []ProviderInfo {
 	}
 
 	scored := make([]scoredProvider, 0, len(providers))
+	s.logger.Info("Scoring %d providers", len(providers))
 
 	// Calculate scores for all providers
 	for _, p := range providers {
-		// Lower price and latency is better
+		// Lower price and higher TPS is better
 		priceScore := 1.0 / (p.InputPriceTokens + p.OutputPriceTokens)
-		latencyScore := 1.0 / float64(p.Latency)
+		tpsScore := p.AverageTPS // Higher TPS is directly better
 
-		// Weight price more heavily than latency (70/30 split)
-		score := (priceScore * 0.7) + (latencyScore * 0.3)
+		// Weight price more heavily than TPS (70/30 split)
+		score := (priceScore * 0.7) + (tpsScore * 0.3)
 
 		scored = append(scored, scoredProvider{p, score})
+		s.logger.Info("Provider %s scored %f (price: %f, tps: %f)", p.ProviderID, score, p.InputPriceTokens+p.OutputPriceTokens, p.AverageTPS)
 	}
 
 	// Sort by score in descending order

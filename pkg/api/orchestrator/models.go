@@ -36,15 +36,15 @@ type ConsumerModelSettings struct {
 	MaxOutputPriceTokens float64 `json:"max_output_price_tokens"`
 }
 
-// ProviderInfo represents a provider's information and pricing
+// ProviderInfo contains information about a provider
 type ProviderInfo struct {
 	ProviderID        uuid.UUID `json:"provider_id"`
 	URL               string    `json:"url"`
 	InputPriceTokens  float64   `json:"input_price_tokens"`
 	OutputPriceTokens float64   `json:"output_price_tokens"`
 	Tier              int       `json:"tier"`
-	Latency           int       `json:"latency_ms"`
 	HealthStatus      string    `json:"health_status"`
+	AverageTPS        float64   `json:"average_tps"`
 }
 
 // TransactionRecord represents a transaction in the database

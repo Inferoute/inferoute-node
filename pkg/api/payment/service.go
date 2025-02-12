@@ -112,6 +112,43 @@ func (s *Service) processPayment(msg *PaymentMessage) error {
 	serviceFee := totalCost * feePercentage
 	providerEarnings := totalCost - serviceFee
 
+	// Update the provider model's average TPS and transaction count
+	err = s.db.ExecuteTx(context.Background(), func(tx *sql.Tx) error {
+		// Get current values
+		var currentAvgTPS float64
+		var currentCount int
+		err := tx.QueryRow(`
+			SELECT average_tps, transaction_count 
+			FROM provider_models 
+			WHERE provider_id = $1 AND model_name = $2`,
+			msg.ProviderID, msg.ModelName,
+		).Scan(&currentAvgTPS, &currentCount)
+		if err != nil {
+			return fmt.Errorf("failed to get current TPS stats: %w", err)
+		}
+
+		// Calculate new average using the running average formula
+		newCount := currentCount + 1
+		newAvgTPS := ((currentAvgTPS * float64(currentCount)) + tokensPerSecond) / float64(newCount)
+
+		// Update the provider model
+		_, err = tx.Exec(`
+			UPDATE provider_models 
+			SET average_tps = $1, 
+				transaction_count = $2,
+				updated_at = NOW()
+			WHERE provider_id = $3 AND model_name = $4`,
+			newAvgTPS, newCount, msg.ProviderID, msg.ModelName,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update provider model TPS stats: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update provider model stats: %w", err)
+	}
+
 	// Update transaction with payment details
 	query := `
 		UPDATE transactions 

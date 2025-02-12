@@ -127,7 +127,7 @@ func main() {
 	})
 
 	// Initialize services and handlers
-	service := orchestrator.NewService(database, logger, rmq)
+	service := orchestrator.NewService(database, logger, rmq, cfg.InternalAPIKey)
 	handler := orchestrator.NewHandler(service, logger)
 
 	// Register routes
