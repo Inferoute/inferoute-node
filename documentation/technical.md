@@ -3,6 +3,87 @@ NAMES:
 Inferoute
 Routeollama
 
+# System Architecture
+
+```mermaid
+graph TB
+    subgraph External
+        Consumer[Consumer]
+        Provider[Provider Health]
+        CloudflareProxy[Cloudflare Proxy]
+    end
+
+    subgraph CentralNode["Central Node"]
+        NGINX[NGINX Gateway]
+        
+        subgraph Microservices
+            Orchestrator[Orchestrator Service]
+            Auth[Authentication Service]
+            ProviderMgmt[Provider Management]
+            ProviderHealth[Provider Health]
+            ProviderComm[Provider Communication]
+            Payment[Payment Processing]
+            ConsumerMgmt[Consumer Management]
+        end
+        
+        subgraph Infrastructure
+            CockroachDB[(CockroachDB)]
+            RabbitMQ{RabbitMQ}
+            OpenTelemetry[OpenTelemetry]
+        end
+    end
+
+    subgraph ProviderInfra["Provider Infrastructure"]
+        ProviderClient[Provider Client]
+        Ollama[Ollama]
+    end
+
+    %% External connections
+    Consumer --> CloudflareProxy
+    CloudflareProxy --> NGINX
+    Provider --> NGINX
+    
+    %% NGINX routing
+    NGINX --> Orchestrator
+    NGINX --> Auth
+    NGINX --> ProviderMgmt
+    NGINX --> ConsumerMgmt
+    
+    %% Service interactions
+    Orchestrator --> Auth
+    Orchestrator --> ProviderHealth
+    Orchestrator --> ProviderComm
+    Orchestrator --> RabbitMQ
+    
+    ProviderMgmt --> RabbitMQ
+    ProviderHealth --> RabbitMQ
+    Payment --> RabbitMQ
+    
+    %% Database connections
+    Orchestrator --> CockroachDB
+    Auth --> CockroachDB
+    ProviderMgmt --> CockroachDB
+    ProviderHealth --> CockroachDB
+    ProviderComm --> CockroachDB
+    Payment --> CockroachDB
+    ConsumerMgmt --> CockroachDB
+    
+    %% Provider infrastructure
+    ProviderComm --> ProviderClient
+    ProviderClient --> Ollama
+    ProviderClient --> ProviderMgmt
+    
+    %% Monitoring
+    Microservices --> OpenTelemetry
+    
+    classDef external fill:#f9f,stroke:#333,stroke-width:2px
+    classDef infrastructure fill:#ff9,stroke:#333,stroke-width:2px
+    classDef service fill:#9f9,stroke:#333,stroke-width:2px
+    
+    class Consumer,Provider,CloudflareProxy external
+    class CockroachDB,RabbitMQ,OpenTelemetry infrastructure
+    class Orchestrator,Auth,ProviderMgmt,ProviderHealth,ProviderComm,Payment,ConsumerMgmt service
+```
 
 # Services and Their Roles
 
@@ -53,11 +134,16 @@ The orchestrator is the central controller that coordinates the request workflow
      - Compatible pricing
 
 4. **Provider Scoring & Selection**
-   - Scores providers using weighted criteria:
-     - Price Score (70%): Inverse of total token price (input + output)
-     - Performance Score (30%): Average tokens per second (TPS)
+   - Scores providers using weighted criteria based on `sort` parameter:
+     - For `sort=cost` (default):
+       - Price Score (70%): Inverse of total token price (input + output)
+       - Performance Score (30%): Average tokens per second (TPS)
+     - For `sort=throughput`:
+       - Price Score (20%): Inverse of total token price
+       - Performance Score (80%): Average tokens per second (TPS)
    - Selects top 3 providers ordered by score
    - Uses first provider as primary, others as fallbacks
+   - Sort parameter can be included in request: `{"sort": "throughput"}` or `{"sort": "cost"}`
 
 5. **Transaction Management**
    - Generates unique HMAC for request tracking

@@ -1,18 +1,54 @@
 package main
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sentnl/inferoute-node/internal/config"
 	"github.com/sentnl/inferoute-node/pkg/api/payment"
 	"github.com/sentnl/inferoute-node/pkg/common"
 	"github.com/sentnl/inferoute-node/pkg/rabbitmq"
 )
+
+// TestMessage represents a test message configuration
+type TestMessage struct {
+	ConsumerID uuid.UUID
+	ProviderID uuid.UUID
+	ModelName  string
+	InputCost  float64
+	OutputCost float64
+}
+
+// getTestMessages returns a slice of test messages to process
+func getTestMessages() []TestMessage {
+	return []TestMessage{
+		{
+			ConsumerID: uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"), // Enterprise consumer
+			ProviderID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), // Tier 1 provider
+			ModelName:  "deepseek-r1:8b",
+			InputCost:  0.15,
+			OutputCost: 0.3,
+		},
+		{
+			ConsumerID: uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd"), // Business consumer
+			ProviderID: uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), // Tier 2 provider
+			ModelName:  "claude-2",
+			InputCost:  0.6,
+			OutputCost: 0.18,
+		},
+		{
+			ConsumerID: uuid.MustParse("77777777-7777-7777-7777-777777777777"), // Startup consumer
+			ProviderID: uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"), // Tier 2 provider
+			ModelName:  "mistral-small",
+			InputCost:  0.3,
+			OutputCost: 0.9,
+		},
+	}
+}
 
 func main() {
 	// Load config
@@ -24,24 +60,6 @@ func main() {
 
 	// Initialize logger
 	logger := common.NewLogger("payment-test")
-
-	// Connect to database
-	connStr := fmt.Sprintf(
-		"postgresql://%s:%s@%s:%d/%s?sslmode=%s",
-		cfg.DatabaseUser,
-		cfg.DatabasePassword,
-		cfg.DatabaseHost,
-		cfg.DatabasePort,
-		cfg.DatabaseDBName,
-		cfg.DatabaseSSLMode,
-	)
-
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		logger.Error("Failed to connect to database: %v", err)
-		os.Exit(1)
-	}
-	defer db.Close()
 
 	// Initialize RabbitMQ
 	rmqURL := fmt.Sprintf("amqp://%s:%s@%s:%d/%s",
@@ -57,41 +75,29 @@ func main() {
 	}
 	defer rmq.Close()
 
-	// Query all payment transactions
-	rows, err := db.QueryContext(context.Background(),
-		`SELECT 
-			consumer_id, provider_id, hmac, model_name,
-			total_input_tokens, total_output_tokens, latency,
-			input_price_tokens, output_price_tokens
-		FROM transactions 
-		WHERE status = 'payment'
-		ORDER BY created_at ASC`)
-	if err != nil {
-		logger.Error("Failed to query transactions: %v", err)
-		os.Exit(1)
-	}
-	defer rows.Close()
+	// Get test messages
+	testMessages := getTestMessages()
 
-	// Process each transaction
+	// Process each test message
 	var count int
 	startTime := time.Now()
+	rand.Seed(time.Now().UnixNano())
 
-	for rows.Next() {
-		var msg payment.PaymentMessage
-		err := rows.Scan(
-			&msg.ConsumerID,
-			&msg.ProviderID,
-			&msg.HMAC,
-			&msg.ModelName,
-			&msg.TotalInputTokens,
-			&msg.TotalOutputTokens,
-			&msg.Latency,
-			&msg.InputPriceTokens,
-			&msg.OutputPriceTokens,
-		)
-		if err != nil {
-			logger.Error("Failed to scan row: %v", err)
-			continue
+	for i := 0; i < 100; i++ { // Send 100 test messages
+		// Pick a random test message configuration
+		testMsg := testMessages[rand.Intn(len(testMessages))]
+
+		// Create payment message
+		msg := payment.PaymentMessage{
+			ConsumerID:        testMsg.ConsumerID,
+			ProviderID:        testMsg.ProviderID,
+			HMAC:              fmt.Sprintf("test_hmac_%d", i),
+			ModelName:         testMsg.ModelName,
+			TotalInputTokens:  rand.Intn(1000) + 100,      // 100-1100 tokens
+			TotalOutputTokens: rand.Intn(1500) + 200,      // 200-1700 tokens
+			Latency:           int64(rand.Intn(200) + 50), // 50-250ms latency
+			InputPriceTokens:  testMsg.InputCost,
+			OutputPriceTokens: testMsg.OutputCost,
 		}
 
 		// Convert message to JSON
@@ -116,6 +122,9 @@ func main() {
 		if count%10 == 0 {
 			logger.Info("Published %d messages...", count)
 		}
+
+		// Add small delay between messages
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	duration := time.Since(startTime)

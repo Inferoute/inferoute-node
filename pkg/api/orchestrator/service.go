@@ -89,7 +89,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	}
 
 	// 4. Select best providers based on price and latency
-	selectedProviders := s.selectBestProviders(providers)
+	selectedProviders := s.selectBestProviders(providers, req.Sort)
 	if len(selectedProviders) == 0 {
 		return nil, fmt.Errorf("no suitable providers found for model %s", req.Model)
 	}
@@ -239,7 +239,7 @@ func (s *Service) getHealthyProviders(ctx context.Context, model string, setting
 	return providers, nil
 }
 
-func (s *Service) selectBestProviders(providers []ProviderInfo) []ProviderInfo {
+func (s *Service) selectBestProviders(providers []ProviderInfo, sortBy string) []ProviderInfo {
 	if len(providers) == 0 {
 		s.logger.Error("selectBestProviders called with empty providers list")
 		return nil
@@ -254,17 +254,31 @@ func (s *Service) selectBestProviders(providers []ProviderInfo) []ProviderInfo {
 	scored := make([]scoredProvider, 0, len(providers))
 	s.logger.Info("Scoring %d providers", len(providers))
 
+	// Set weights based on sort preference
+	var priceWeight, tpsWeight float64
+	switch sortBy {
+	case "throughput":
+		s.logger.Info("GERT Sorting by throughput")
+		priceWeight = 0.2 // 20% price
+		tpsWeight = 0.8   // 80% throughput
+	default: // "cost" or empty
+		s.logger.Info("GERT Sorting by cost")
+		priceWeight = 0.7 // 70% price
+		tpsWeight = 0.3   // 30% throughput
+	}
+
 	// Calculate scores for all providers
 	for _, p := range providers {
 		// Lower price and higher TPS is better
 		priceScore := 1.0 / (p.InputPriceTokens + p.OutputPriceTokens)
 		tpsScore := p.AverageTPS // Higher TPS is directly better
 
-		// Weight price more heavily than TPS (70/30 split)
-		score := (priceScore * 0.7) + (tpsScore * 0.3)
+		// Apply weights based on sort preference
+		score := (priceScore * priceWeight) + (tpsScore * tpsWeight)
 
 		scored = append(scored, scoredProvider{p, score})
-		s.logger.Info("Provider %s scored %f (price: %f, tps: %f)", p.ProviderID, score, p.InputPriceTokens+p.OutputPriceTokens, p.AverageTPS)
+		s.logger.Info("Provider %s scored %f (price: %f, tps: %f, sort: %s)",
+			p.ProviderID, score, p.InputPriceTokens+p.OutputPriceTokens, p.AverageTPS, sortBy)
 	}
 
 	// Sort by score in descending order

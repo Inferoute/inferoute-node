@@ -34,10 +34,10 @@ func InternalOnly() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			// Log request details
-			logger.Info("Request details:")
-			logger.Info("  Remote IP: %s", c.Request().RemoteAddr)
-			logger.Info("  X-Forwarded-For: %s", c.Request().Header.Get("X-Forwarded-For"))
-			logger.Info("  X-Real-IP: %s", c.Request().Header.Get("X-Real-IP"))
+			//logger.Info("Request details:")
+			//logger.Info("  Remote IP: %s", c.Request().RemoteAddr)
+			//logger.Info("  X-Forwarded-For: %s", c.Request().Header.Get("X-Forwarded-For"))
+			//logger.Info("  X-Real-IP: %s", c.Request().Header.Get("X-Real-IP"))
 
 			// Check internal API key
 			apiKey := c.Request().Header.Get("X-Internal-Key")
@@ -62,13 +62,13 @@ func InternalOnly() echo.MiddlewareFunc {
 				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid IP address")
 			}
 
-			logger.Info("  Parsed IP: %s", ipAddr.String())
-			logger.Info("  Internal Network IPv4: %s", internalNet.String())
-			logger.Info("  Internal Network IPv6: %s", internalNetV6.String())
+			//logger.Info("  Parsed IP: %s", ipAddr.String())
+			//logger.Info("  Internal Network IPv4: %s", internalNet.String())
+			//logger.Info("  Internal Network IPv6: %s", internalNetV6.String())
 
 			// Check both IPv4 and IPv6 networks
 			isInternal := internalNet.Contains(ipAddr) || internalNetV6.Contains(ipAddr)
-			logger.Info("  Is Internal: %v", isInternal)
+			//logger.Info("  Is Internal: %v", isInternal)
 
 			if !isInternal {
 				logger.Error("IP %s not in internal networks", ipAddr.String())
