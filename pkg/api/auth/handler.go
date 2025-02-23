@@ -25,10 +25,29 @@ func NewHandler(service *Service, logger *common.Logger) *Handler {
 func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	g := e.Group("/api/auth")
 
-	g.POST("/users", h.CreateUser)
-	g.POST("/validate", h.ValidateAPIKey)
-	g.POST("/hold", h.HoldDeposit)
-	g.POST("/release", h.ReleaseHold)
+	g.POST("/users", h.CreateUser, h.requireInternalKey)
+	g.POST("/validate", h.ValidateAPIKey, h.requireInternalKey)
+	g.POST("/hold", h.HoldDeposit, h.requireInternalKey)
+	g.POST("/release", h.ReleaseHold, h.requireInternalKey)
+	g.POST("/entities", h.CreateEntity, h.requireInternalKey)
+	g.POST("/api-keys", h.CreateAPIKey, h.requireInternalKey)
+}
+
+// requireInternalKey middleware checks for X-Internal-Key header
+func (h *Handler) requireInternalKey(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		internalKey := c.Request().Header.Get("X-Internal-Key")
+		if internalKey == "" {
+			return common.ErrUnauthorized(nil)
+		}
+
+		// TODO: Compare with configured internal key
+		if internalKey != h.service.config.InternalKey {
+			return common.ErrUnauthorized(nil)
+		}
+
+		return next(c)
+	}
 }
 
 // CreateUser handles the creation of a new user
@@ -148,4 +167,66 @@ func (h *Handler) ReleaseHold(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// CreateEntity handles the creation of a new consumer or provider
+// @Summary Create a new consumer or provider
+// @Description Create a new consumer or provider for an existing user
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Security InternalKey
+// @Param request body CreateEntityRequest true "Entity creation request"
+// @Success 201 {object} CreateEntityResponse
+// @Failure 400 {object} common.ErrorResponse
+// @Failure 401 {object} common.ErrorResponse
+// @Failure 500 {object} common.ErrorResponse
+// @Router /api/auth/entities [post]
+func (h *Handler) CreateEntity(c echo.Context) error {
+	var req CreateEntityRequest
+	if err := c.Bind(&req); err != nil {
+		return common.ErrInvalidInput(err)
+	}
+
+	if err := c.Validate(&req); err != nil {
+		return common.ErrInvalidInput(err)
+	}
+
+	resp, err := h.service.CreateEntity(c.Request().Context(), req)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusCreated, resp)
+}
+
+// CreateAPIKey handles the creation of a new API key
+// @Summary Create a new API key
+// @Description Create a new API key for a consumer or provider
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Security InternalKey
+// @Param request body CreateAPIKeyRequest true "API key creation request"
+// @Success 201 {object} CreateAPIKeyResponse
+// @Failure 400 {object} common.ErrorResponse
+// @Failure 401 {object} common.ErrorResponse
+// @Failure 500 {object} common.ErrorResponse
+// @Router /api/auth/api-keys [post]
+func (h *Handler) CreateAPIKey(c echo.Context) error {
+	var req CreateAPIKeyRequest
+	if err := c.Bind(&req); err != nil {
+		return common.ErrInvalidInput(err)
+	}
+
+	if err := c.Validate(&req); err != nil {
+		return common.ErrInvalidInput(err)
+	}
+
+	resp, err := h.service.CreateAPIKey(c.Request().Context(), req)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusCreated, resp)
 }

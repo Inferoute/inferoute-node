@@ -9,7 +9,6 @@ import (
 // User represents a user in the system
 type User struct {
 	ID        uuid.UUID `json:"id"`
-	Type      string    `json:"type"` // "consumer" or "provider"
 	Username  string    `json:"username"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -54,31 +53,56 @@ type Balance struct {
 
 // APIKey represents an API key for a provider or consumer
 type APIKey struct {
-	ID         uuid.UUID  `json:"id"`
-	ProviderID *uuid.UUID `json:"provider_id,omitempty"`
-	ConsumerID *uuid.UUID `json:"consumer_id,omitempty"`
-	APIKey     string     `json:"api_key"`
-	IsActive   bool       `json:"is_active"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ID          uuid.UUID  `json:"id"`
+	ProviderID  *uuid.UUID `json:"provider_id,omitempty"`
+	ConsumerID  *uuid.UUID `json:"consumer_id,omitempty"`
+	APIKey      string     `json:"api_key"`
+	Description string     `json:"description"`
+	IsActive    bool       `json:"is_active"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // CreateUserRequest represents a request to create a new user
 type CreateUserRequest struct {
-	Type     string  `json:"type" validate:"required,oneof=consumer provider"`
-	Username string  `json:"username" validate:"required"`
-	Name     string  `json:"name" validate:"required"`
-	Balance  float64 `json:"balance" validate:"required,min=0"`
-	APIURL   string  `json:"api_url,omitempty"` // Only for providers
+	Username string `json:"username" validate:"required"`
 }
 
 // CreateUserResponse represents the response to a create user request
 type CreateUserResponse struct {
-	User     User      `json:"user"`
+	User User `json:"user"`
+}
+
+// CreateEntityRequest represents a request to create a consumer or provider
+type CreateEntityRequest struct {
+	UserID uuid.UUID `json:"user_id" validate:"required"`
+	Type   string    `json:"type" validate:"required,oneof=consumer provider"`
+	Name   string    `json:"name" validate:"required"`
+	APIURL string    `json:"api_url,omitempty"` // Only for providers
+}
+
+// CreateEntityResponse represents the response to create a consumer or provider
+type CreateEntityResponse struct {
 	Provider *Provider `json:"provider,omitempty"`
 	Consumer *Consumer `json:"consumer,omitempty"`
-	APIKey   string    `json:"api_key"`
-	Balance  Balance   `json:"balance"`
+}
+
+// CreateAPIKeyRequest represents a request to create a new API key
+type CreateAPIKeyRequest struct {
+	UserID      uuid.UUID  `json:"user_id" validate:"required"`
+	ProviderID  *uuid.UUID `json:"provider_id,omitempty"`
+	ConsumerID  *uuid.UUID `json:"consumer_id,omitempty"`
+	Type        string     `json:"type" validate:"required,oneof=consumer provider"`
+	Description string     `json:"description" validate:"required"`
+}
+
+// CreateAPIKeyResponse represents the response to create an API key
+type CreateAPIKeyResponse struct {
+	ID          uuid.UUID  `json:"id"`
+	APIKey      string     `json:"api_key"`
+	Description string     `json:"description"`
+	ProviderID  *uuid.UUID `json:"provider_id,omitempty"`
+	ConsumerID  *uuid.UUID `json:"consumer_id,omitempty"`
 }
 
 // ValidateAPIKeyRequest represents a request to validate an API key

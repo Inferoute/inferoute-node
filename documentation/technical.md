@@ -194,24 +194,83 @@ The orchestrator is the central controller that coordinates the request workflow
 
 ## 3.  Authentication Service (Go) - DONE !!!!  (requires INTERNAL_API_KEY so only authorized internal go services can use these APIs)
 
-- **Role:** Manages user authentication, API key validation, and deposit handling for both consumers and providers. Ensures users have sufficient balance for operations and provides deposit hold/release functionality for transaction safety.
+- **Role:** Manages user authentication, API key validation, and deposit handling. Users can have multiple providers and/or consumers associated with their account. Also provides deposit hold/release functionality for transaction safety.
 
 - **Endpoints (HTTP/JSON):**
 
 POST /api/auth/users
-  - Create a new user account with API key
-  - Requires user type (consumer/provider)
-  - Generates a unique API key for the user
-  - Creates associated consumer or provider record
-  - Sets initial deposit balance if provided (for consumers)
-  - Returns user ID and API key
+  - Creates a new base user account
+  - Protected by X-Internal-Key
+  - Example Request:
+    ```json
+    {
+      "username": "example_user"
+    }
+    ```
+  - Returns:
+    ```json
+    {
+      "user": {
+        "id": "uuid",
+        "username": "example_user",
+        "created_at": "timestamp",
+        "updated_at": "timestamp"
+      }
+    }
+    ```
+
+POST /api/auth/entities
+  - Creates a new provider or consumer entity for an existing user
+  - A user can have multiple providers and/or consumers
+  - Protected by X-Internal-Key
+  - Example Provider Creation:
+    ```json
+    {
+      "user_id": "user-uuid",
+      "type": "provider",
+      "name": "My Provider",
+      "api_url": "https://provider-api.example.com"
+    }
+    ```
+  - Example Consumer Creation:
+    ```json
+    {
+      "user_id": "user-uuid",
+      "type": "consumer",
+      "name": "My Consumer"
+    }
+    ```
+  - Returns the created provider or consumer entity
+
+POST /api/auth/api-keys
+  - Creates a new API key for a provider or consumer
+  - Protected by X-Internal-Key
+  - Example Request:
+    ```json
+    {
+      "user_id": "user-uuid",
+      "provider_id": "provider-uuid",  // or consumer_id for consumer keys
+      "type": "provider",  // or "consumer"
+      "description": "Production API key"
+    }
+    ```
+  - Returns:
+    ```json
+    {
+      "id": "key-uuid",
+      "api_key": "sk-...",
+      "description": "Production API key",
+      "provider_id": "provider-uuid",  // or consumer_id
+      "created_at": "timestamp"
+    }
+    ```
 
 POST /api/auth/validate
   - Validates API key and checks user's details
   - For consumers: ensures minimum balance requirement ($1.00)
   - For providers: verifies active status
+  - Protected by X-Internal-Key
   - Returns user details and type-specific information
-  - Authentication: API key required in Bearer token
   - Response includes:
     - User ID and type
     - For consumers: available balance and account status
@@ -222,15 +281,20 @@ POST /api/auth/hold
   - Only applicable for consumer accounts
   - Used before processing transactions
   - Prevents double-spending
-  - Authentication: API key required
+  - Protected by X-Internal-Key
 
 POST /api/auth/release
   - Releases a previously held deposit of $1.00
   - Only applicable for consumer accounts
   - Used after successful transaction completion
-  - Authentication: API key required
+  - Protected by X-Internal-Key
 
-
+**Key Features:**
+- Multi-entity support: Users can have multiple providers and/or consumers
+- Secure internal API access with X-Internal-Key
+- Flexible API key management per entity
+- Transaction safety with hold/release mechanism
+- Clear separation between user accounts and their provider/consumer entities
 
 ## 4.  Provider Management Service (Go) - DONE!!!!!
 

@@ -108,9 +108,8 @@ func main() {
 			var consumerID uuid.UUID
 			query := `SELECT c.id 
 				FROM consumers c
-				JOIN users u ON u.id = c.user_id
 				JOIN api_keys ak ON ak.consumer_id = c.id
-				WHERE ak.api_key = $1 AND u.type = 'consumer' AND ak.is_active = true`
+				WHERE ak.api_key = $1 AND ak.is_active = true`
 
 			err := database.QueryRowContext(c.Request().Context(), query, apiKey).Scan(&consumerID)
 			if err != nil {

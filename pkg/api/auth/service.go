@@ -13,21 +13,28 @@ import (
 	"github.com/sentnl/inferoute-node/pkg/common"
 )
 
+// Config holds service configuration
+type Config struct {
+	InternalKey string
+}
+
 // Service handles authentication business logic
 type Service struct {
 	db     *db.DB
 	logger *common.Logger
+	config Config
 }
 
 // NewService creates a new authentication service
-func NewService(db *db.DB, logger *common.Logger) *Service {
+func NewService(db *db.DB, logger *common.Logger, config Config) *Service {
 	return &Service{
 		db:     db,
 		logger: logger,
+		config: config,
 	}
 }
 
-// CreateUser creates a new user with an API key and initial balance
+// CreateUser creates a new user
 func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*CreateUserResponse, error) {
 	var response CreateUserResponse
 
@@ -35,160 +42,21 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*Creat
 		// Create user
 		user := User{
 			ID:        uuid.New(),
-			Type:      req.Type,
 			Username:  req.Username,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
 
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO users (id, type, username, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5)`,
-			user.ID, user.Type, user.Username, user.CreatedAt, user.UpdatedAt,
+			`INSERT INTO users (id, username, created_at, updated_at)
+			VALUES ($1, $2, $3, $4)`,
+			user.ID, user.Username, user.CreatedAt, user.UpdatedAt,
 		)
 		if err != nil {
 			return fmt.Errorf("error creating user: %v", err)
 		}
 
 		response.User = user
-
-		// Create provider or consumer based on user type
-		if user.Type == "provider" {
-			provider := Provider{
-				ID:          uuid.New(),
-				UserID:      user.ID,
-				Name:        req.Name,
-				IsAvailable: false,
-				APIURL:      req.APIURL,
-				CreatedAt:   time.Now(),
-				UpdatedAt:   time.Now(),
-			}
-
-			_, err = tx.ExecContext(ctx,
-				`INSERT INTO providers (id, user_id, name, is_available, api_url, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				provider.ID, provider.UserID, provider.Name, provider.IsAvailable,
-				provider.APIURL, provider.CreatedAt, provider.UpdatedAt,
-			)
-			if err != nil {
-				return fmt.Errorf("error creating provider: %v", err)
-			}
-
-			response.Provider = &provider
-
-			// Generate API key for provider
-			apiKey := APIKey{
-				ID:         uuid.New(),
-				ProviderID: &provider.ID,
-				APIKey:     generateAPIKey(),
-				IsActive:   true,
-				CreatedAt:  time.Now(),
-				UpdatedAt:  time.Now(),
-			}
-
-			_, err = tx.ExecContext(ctx,
-				`INSERT INTO api_keys (id, provider_id, api_key, is_active, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6)`,
-				apiKey.ID, apiKey.ProviderID, apiKey.APIKey, apiKey.IsActive,
-				apiKey.CreatedAt, apiKey.UpdatedAt,
-			)
-			if err != nil {
-				return fmt.Errorf("error creating API key: %v", err)
-			}
-
-			response.APIKey = apiKey.APIKey
-
-			// Create balance for provider
-			balance := Balance{
-				ID:              uuid.New(),
-				ProviderID:      &provider.ID,
-				AvailableAmount: req.Balance,
-				HeldAmount:      0,
-				CreatedAt:       time.Now(),
-				UpdatedAt:       time.Now(),
-			}
-
-			_, err = tx.ExecContext(ctx,
-				`INSERT INTO balances (id, provider_id, available_amount, held_amount, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6)`,
-				balance.ID, balance.ProviderID, balance.AvailableAmount,
-				balance.HeldAmount, balance.CreatedAt, balance.UpdatedAt,
-			)
-			if err != nil {
-				return fmt.Errorf("error creating balance: %v", err)
-			}
-
-			response.Balance = balance
-
-		} else {
-			consumer := Consumer{
-				ID:                   uuid.New(),
-				UserID:               user.ID,
-				Name:                 req.Name,
-				MaxInputPriceTokens:  1.0, // Default values
-				MaxOutputPriceTokens: 1.0,
-				CreatedAt:            time.Now(),
-				UpdatedAt:            time.Now(),
-			}
-
-			_, err = tx.ExecContext(ctx,
-				`INSERT INTO consumers (id, user_id, name, max_input_price_tokens, max_output_price_tokens, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				consumer.ID, consumer.UserID, consumer.Name,
-				consumer.MaxInputPriceTokens, consumer.MaxOutputPriceTokens,
-				consumer.CreatedAt, consumer.UpdatedAt,
-			)
-			if err != nil {
-				return fmt.Errorf("error creating consumer: %v", err)
-			}
-
-			response.Consumer = &consumer
-
-			// Generate API key for consumer
-			apiKey := APIKey{
-				ID:         uuid.New(),
-				ConsumerID: &consumer.ID,
-				APIKey:     generateAPIKey(),
-				IsActive:   true,
-				CreatedAt:  time.Now(),
-				UpdatedAt:  time.Now(),
-			}
-
-			_, err = tx.ExecContext(ctx,
-				`INSERT INTO api_keys (id, consumer_id, api_key, is_active, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6)`,
-				apiKey.ID, apiKey.ConsumerID, apiKey.APIKey, apiKey.IsActive,
-				apiKey.CreatedAt, apiKey.UpdatedAt,
-			)
-			if err != nil {
-				return fmt.Errorf("error creating API key: %v", err)
-			}
-
-			response.APIKey = apiKey.APIKey
-
-			// Create balance for consumer
-			balance := Balance{
-				ID:              uuid.New(),
-				ConsumerID:      &consumer.ID,
-				AvailableAmount: req.Balance,
-				HeldAmount:      0,
-				CreatedAt:       time.Now(),
-				UpdatedAt:       time.Now(),
-			}
-
-			_, err = tx.ExecContext(ctx,
-				`INSERT INTO balances (id, consumer_id, available_amount, held_amount, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6)`,
-				balance.ID, balance.ConsumerID, balance.AvailableAmount,
-				balance.HeldAmount, balance.CreatedAt, balance.UpdatedAt,
-			)
-			if err != nil {
-				return fmt.Errorf("error creating balance: %v", err)
-			}
-
-			response.Balance = balance
-		}
-
 		return nil
 	})
 
@@ -231,17 +99,16 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 		if apiKey.ProviderID != nil {
 			var provider Provider
 			var userID uuid.UUID
-			var userType string
 			var availableBalance, heldBalance float64
 
 			err = tx.QueryRowContext(ctx,
-				`SELECT p.id, p.user_id, u.type, COALESCE(b.available_amount, 0), COALESCE(b.held_amount, 0)
+				`SELECT p.id, p.user_id, COALESCE(b.available_amount, 0), COALESCE(b.held_amount, 0)
 				FROM providers p
 				JOIN users u ON u.id = p.user_id
 				LEFT JOIN balances b ON b.provider_id = p.id
 				WHERE p.id = $1`,
 				apiKey.ProviderID,
-			).Scan(&provider.ID, &userID, &userType, &availableBalance, &heldBalance)
+			).Scan(&provider.ID, &userID, &availableBalance, &heldBalance)
 
 			if err == sql.ErrNoRows {
 				response = ValidateAPIKeyResponse{Valid: false}
@@ -255,7 +122,6 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 				Valid:            true,
 				UserID:           userID,
 				ProviderID:       &provider.ID,
-				UserType:         userType,
 				AvailableBalance: availableBalance,
 				HeldBalance:      heldBalance,
 			}
@@ -266,17 +132,16 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 		if apiKey.ConsumerID != nil {
 			var consumer Consumer
 			var userID uuid.UUID
-			var userType string
 			var availableBalance, heldBalance float64
 
 			err = tx.QueryRowContext(ctx,
-				`SELECT c.id, c.user_id, u.type, COALESCE(b.available_amount, 0), COALESCE(b.held_amount, 0)
+				`SELECT c.id, c.user_id, COALESCE(b.available_amount, 0), COALESCE(b.held_amount, 0)
 				FROM consumers c
 				JOIN users u ON u.id = c.user_id
 				LEFT JOIN balances b ON b.consumer_id = c.id
 				WHERE c.id = $1`,
 				apiKey.ConsumerID,
-			).Scan(&consumer.ID, &userID, &userType, &availableBalance, &heldBalance)
+			).Scan(&consumer.ID, &userID, &availableBalance, &heldBalance)
 
 			if err == sql.ErrNoRows {
 				response = ValidateAPIKeyResponse{Valid: false}
@@ -290,7 +155,6 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 				Valid:            true,
 				UserID:           userID,
 				ConsumerID:       &consumer.ID,
-				UserType:         userType,
 				AvailableBalance: availableBalance,
 				HeldBalance:      heldBalance,
 			}
@@ -427,4 +291,170 @@ func generateAPIKey() string {
 	}
 	// Use RawURLEncoding to avoid / and + characters
 	return fmt.Sprintf("sk-%s", base64.RawURLEncoding.EncodeToString(b))
+}
+
+// CreateEntity creates a new consumer or provider for an existing user
+func (s *Service) CreateEntity(ctx context.Context, req CreateEntityRequest) (*CreateEntityResponse, error) {
+	var response CreateEntityResponse
+
+	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
+		// Verify user exists
+		var exists bool
+		err := tx.QueryRowContext(ctx,
+			`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`,
+			req.UserID,
+		).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("error checking user existence: %v", err)
+		}
+		if !exists {
+			return common.ErrNotFound(fmt.Errorf("user not found"))
+		}
+
+		if req.Type == "provider" {
+			provider := Provider{
+				ID:          uuid.New(),
+				UserID:      req.UserID,
+				Name:        req.Name,
+				IsAvailable: false,
+				APIURL:      req.APIURL,
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
+			}
+
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO providers (id, user_id, name, is_available, api_url, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				provider.ID, provider.UserID, provider.Name, provider.IsAvailable,
+				provider.APIURL, provider.CreatedAt, provider.UpdatedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("error creating provider: %v", err)
+			}
+
+			response.Provider = &provider
+		} else {
+			consumer := Consumer{
+				ID:                   uuid.New(),
+				UserID:               req.UserID,
+				Name:                 req.Name,
+				MaxInputPriceTokens:  1.0, // Default values
+				MaxOutputPriceTokens: 1.0,
+				CreatedAt:            time.Now(),
+				UpdatedAt:            time.Now(),
+			}
+
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO consumers (id, user_id, name, max_input_price_tokens, max_output_price_tokens, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				consumer.ID, consumer.UserID, consumer.Name,
+				consumer.MaxInputPriceTokens, consumer.MaxOutputPriceTokens,
+				consumer.CreatedAt, consumer.UpdatedAt,
+			)
+			if err != nil {
+				return fmt.Errorf("error creating consumer: %v", err)
+			}
+
+			response.Consumer = &consumer
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, common.ErrInternalServer(err)
+	}
+
+	return &response, nil
+}
+
+// CreateAPIKey creates a new API key for a consumer or provider
+func (s *Service) CreateAPIKey(ctx context.Context, req CreateAPIKeyRequest) (*CreateAPIKeyResponse, error) {
+	var response CreateAPIKeyResponse
+
+	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
+		// Verify user exists
+		var exists bool
+		err := tx.QueryRowContext(ctx,
+			`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`,
+			req.UserID,
+		).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("error checking user existence: %v", err)
+		}
+		if !exists {
+			return common.ErrNotFound(fmt.Errorf("user not found"))
+		}
+
+		// Verify consumer/provider exists and belongs to user
+		if req.Type == "provider" {
+			if req.ProviderID == nil {
+				return common.ErrInvalidInput(fmt.Errorf("provider_id is required for provider API keys"))
+			}
+			var exists bool
+			err := tx.QueryRowContext(ctx,
+				`SELECT EXISTS(SELECT 1 FROM providers WHERE id = $1 AND user_id = $2)`,
+				req.ProviderID, req.UserID,
+			).Scan(&exists)
+			if err != nil {
+				return fmt.Errorf("error checking provider existence: %v", err)
+			}
+			if !exists {
+				return common.ErrNotFound(fmt.Errorf("provider not found or does not belong to user"))
+			}
+		} else {
+			if req.ConsumerID == nil {
+				return common.ErrInvalidInput(fmt.Errorf("consumer_id is required for consumer API keys"))
+			}
+			var exists bool
+			err := tx.QueryRowContext(ctx,
+				`SELECT EXISTS(SELECT 1 FROM consumers WHERE id = $1 AND user_id = $2)`,
+				req.ConsumerID, req.UserID,
+			).Scan(&exists)
+			if err != nil {
+				return fmt.Errorf("error checking consumer existence: %v", err)
+			}
+			if !exists {
+				return common.ErrNotFound(fmt.Errorf("consumer not found or does not belong to user"))
+			}
+		}
+
+		// Create API key
+		apiKey := APIKey{
+			ID:          uuid.New(),
+			ProviderID:  req.ProviderID,
+			ConsumerID:  req.ConsumerID,
+			APIKey:      generateAPIKey(),
+			Description: req.Description,
+			IsActive:    true,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		}
+
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO api_keys (id, provider_id, consumer_id, api_key, description, is_active, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			apiKey.ID, apiKey.ProviderID, apiKey.ConsumerID, apiKey.APIKey,
+			apiKey.Description, apiKey.IsActive, apiKey.CreatedAt, apiKey.UpdatedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("error creating API key: %v", err)
+		}
+
+		response = CreateAPIKeyResponse{
+			ID:          apiKey.ID,
+			APIKey:      apiKey.APIKey,
+			Description: apiKey.Description,
+			ProviderID:  apiKey.ProviderID,
+			ConsumerID:  apiKey.ConsumerID,
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, common.ErrInternalServer(err)
+	}
+
+	return &response, nil
 }

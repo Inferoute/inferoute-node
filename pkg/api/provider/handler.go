@@ -77,7 +77,10 @@ func (h *Handler) AddModel(c echo.Context) error {
 	}
 
 	// Get provider ID from auth context
-	providerID := c.Get("user_id").(uuid.UUID)
+	providerID, ok := c.Get("provider_id").(uuid.UUID)
+	if !ok {
+		return common.NewUnauthorizedError("Invalid or missing provider ID")
+	}
 
 	model, err := h.service.AddModel(c.Request().Context(), providerID, req)
 	if err != nil {
@@ -94,9 +97,12 @@ func (h *Handler) AddModel(c echo.Context) error {
 // @Success 200 {object} ListModelsResponse
 // @Router /api/provider/models [get]
 func (h *Handler) ListModels(c echo.Context) error {
-	userID := c.Get("user_id").(uuid.UUID)
+	providerID, ok := c.Get("provider_id").(uuid.UUID)
+	if !ok {
+		return common.NewUnauthorizedError("Invalid or missing provider ID")
+	}
 
-	response, err := h.service.ListModels(c.Request().Context(), userID)
+	response, err := h.service.ListModels(c.Request().Context(), providerID)
 	if err != nil {
 		return err
 	}
@@ -125,13 +131,17 @@ func (h *Handler) UpdateModel(c echo.Context) error {
 		return err
 	}
 
-	userID := c.Get("user_id").(uuid.UUID)
+	providerID, ok := c.Get("provider_id").(uuid.UUID)
+	if !ok {
+		return common.NewUnauthorizedError("Invalid or missing provider ID")
+	}
+
 	modelID, err := uuid.Parse(c.Param("model_id"))
 	if err != nil {
 		return common.ErrInvalidInput(err)
 	}
 
-	model, err := h.service.UpdateModel(c.Request().Context(), userID, modelID, req)
+	model, err := h.service.UpdateModel(c.Request().Context(), providerID, modelID, req)
 	if err != nil {
 		return err
 	}
@@ -147,13 +157,17 @@ func (h *Handler) UpdateModel(c echo.Context) error {
 // @Failure 404 {object} common.ErrorResponse
 // @Router /api/provider/models/{model_id} [delete]
 func (h *Handler) DeleteModel(c echo.Context) error {
-	userID := c.Get("user_id").(uuid.UUID)
+	providerID, ok := c.Get("provider_id").(uuid.UUID)
+	if !ok {
+		return common.NewUnauthorizedError("Invalid or missing provider ID")
+	}
+
 	modelID, err := uuid.Parse(c.Param("model_id"))
 	if err != nil {
 		return common.ErrInvalidInput(err)
 	}
 
-	err = h.service.DeleteModel(c.Request().Context(), userID, modelID)
+	err = h.service.DeleteModel(c.Request().Context(), providerID, modelID)
 	if err != nil {
 		return err
 	}
@@ -227,7 +241,10 @@ func (h *Handler) UpdatePauseStatus(c echo.Context) error {
 	// Let's log the request body to help debug
 	h.logger.Info("Received pause request: %+v", req)
 
-	providerID := c.Get("user_id").(uuid.UUID)
+	providerID, ok := c.Get("provider_id").(uuid.UUID)
+	if !ok {
+		return common.NewUnauthorizedError("Invalid or missing provider ID")
+	}
 
 	response, err := h.service.UpdatePauseStatus(c.Request().Context(), providerID, req.Paused)
 	if err != nil {
@@ -364,9 +381,9 @@ func (h *Handler) ValidateHMAC(c echo.Context) error {
 	}
 
 	// Get provider ID from auth context
-	providerID, ok := c.Get("user_id").(uuid.UUID)
+	providerID, ok := c.Get("provider_id").(uuid.UUID)
 	if !ok {
-		return common.NewUnauthorizedError("provider ID not found in context")
+		return common.NewUnauthorizedError("Invalid or missing provider ID")
 	}
 
 	response, err := h.service.ValidateHMAC(c.Request().Context(), providerID, req)
@@ -411,7 +428,10 @@ func (h *Handler) UpdateAPIURL(c echo.Context) error {
 		return common.ErrInvalidInput(err)
 	}
 
-	providerID := c.Get("user_id").(uuid.UUID)
+	providerID, ok := c.Get("provider_id").(uuid.UUID)
+	if !ok {
+		return common.NewUnauthorizedError("Invalid or missing provider ID")
+	}
 
 	if err := h.service.UpdateAPIURL(c.Request().Context(), providerID, req.APIURL); err != nil {
 		return err
@@ -434,7 +454,7 @@ func (h *Handler) UpdateAPIURL(c echo.Context) error {
 // @Router /api/provider/health [get]
 func (h *Handler) GetProviderHealth(c echo.Context) error {
 	// Get provider ID from context (set by auth middleware)
-	providerID, ok := c.Get("user_id").(uuid.UUID)
+	providerID, ok := c.Get("provider_id").(uuid.UUID)
 	if !ok {
 		return common.NewUnauthorizedError("Invalid or missing provider ID")
 	}

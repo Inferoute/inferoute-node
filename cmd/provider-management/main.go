@@ -89,7 +89,7 @@ func main() {
 	internalGroup := e.Group("/api/provider/internal")
 	internalGroup.Use(common.InternalOnly())
 
-	// Add auth middleware
+	// Add auth middleware to extract provider ID from API key
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			auth := c.Request().Header.Get("Authorization")
@@ -108,16 +108,14 @@ func main() {
 				return common.ErrUnauthorized(fmt.Errorf("empty API key"))
 			}
 
-			// Query the database to get the user associated with this API key
-			var userID uuid.UUID
-			var username string
-			query := `SELECT u.id, u.username 
-				FROM users u
-				JOIN providers p ON p.user_id = u.id
+			// Query the database to get the provider ID associated with this API key
+			var providerID uuid.UUID
+			query := `SELECT p.id 
+				FROM providers p
 				JOIN api_keys ak ON ak.provider_id = p.id
-				WHERE ak.api_key = $1 AND u.type = 'provider' AND ak.is_active = true`
+				WHERE ak.api_key = $1 AND ak.is_active = true`
 
-			err := database.QueryRowContext(c.Request().Context(), query, apiKey).Scan(&userID, &username)
+			err := database.QueryRowContext(c.Request().Context(), query, apiKey).Scan(&providerID)
 			if err != nil {
 				if err == sql.ErrNoRows {
 					return common.ErrUnauthorized(fmt.Errorf("invalid API key"))
@@ -125,9 +123,8 @@ func main() {
 				return common.ErrInternalServer(fmt.Errorf("error validating API key: %w", err))
 			}
 
-			// Set user info in context
-			c.Set("user_id", userID)
-			c.Set("username", username)
+			// Set provider ID in context
+			c.Set("provider_id", providerID)
 			return next(c)
 		}
 	})

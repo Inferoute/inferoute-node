@@ -30,10 +30,10 @@ echo -e "${GREEN}Database reset and seeded successfully!${NC}"
 # Print some verification queries
 echo -e "${GREEN}Verifying data...${NC}"
 echo "1. Checking user counts:"
-cockroach sql --insecure --host=localhost --database=inferoute --execute="SELECT type, COUNT(*) FROM users GROUP BY type;"
+cockroach sql --insecure --host=localhost --database=inferoute --execute="SELECT COUNT(*) FROM users;"
 
 echo -e "\n2. Checking provider models:"
-cockroach sql --insecure --host=localhost --database=inferoute --execute="SELECT u.username, COUNT(pm.id) as model_count FROM users u LEFT JOIN provider_models pm ON u.id = pm.provider_id WHERE u.type = 'provider' GROUP BY u.username;"
+cockroach sql --insecure --host=localhost --database=inferoute --execute="SELECT u.username, COUNT(pm.*) as model_count FROM users u LEFT JOIN provider_models pm ON u.id = pm.provider_id GROUP BY u.username;"
 
 echo -e "\n3. Checking health history:"
-cockroach sql --insecure --host=localhost --database=inferoute --execute="SELECT u.username, COUNT(phh.id) as health_checks FROM users u LEFT JOIN provider_health_history phh ON u.id = phh.provider_id WHERE u.type = 'provider' GROUP BY u.username;" 
+cockroach sql --insecure --host=localhost --database=inferoute --execute="SELECT u.username, COUNT(phh.*) as health_checks FROM users u LEFT JOIN provider_health_history phh ON u.id = phh.provider_id GROUP BY u.username;" 

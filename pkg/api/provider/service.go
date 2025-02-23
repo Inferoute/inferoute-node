@@ -44,8 +44,7 @@ func (s *Service) AddModel(ctx context.Context, providerID uuid.UUID, req AddMod
 		err := tx.QueryRowContext(ctx,
 			`SELECT EXISTS(
 				SELECT 1 FROM users 
-				WHERE id = $1 
-				AND type = 'provider'
+				WHERE id = $1
 			)`,
 			providerID,
 		).Scan(&exists)

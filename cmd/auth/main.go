@@ -63,7 +63,9 @@ func main() {
 	e.Use(common.InternalOnly())
 
 	// Initialize services and handlers
-	authService := auth.NewService(database, logger)
+	authService := auth.NewService(database, logger, auth.Config{
+		InternalKey: cfg.InternalAPIKey,
+	})
 	authHandler := auth.NewHandler(authService, logger)
 
 	// Register routes

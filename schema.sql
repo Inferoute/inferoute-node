@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS system_settings (
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    type STRING NOT NULL CHECK (type IN ('consumer', 'provider')),
     username STRING UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp()
@@ -45,8 +44,7 @@ CREATE TABLE IF NOT EXISTS providers (
     paused BOOLEAN NOT NULL DEFAULT FALSE,
     api_url STRING,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (user_id, name)
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Add index for faster querying of non-paused providers
@@ -62,8 +60,7 @@ CREATE TABLE IF NOT EXISTS consumers (
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
     CHECK (max_input_price_tokens >= 0),
-    CHECK (max_output_price_tokens >= 0),
-    UNIQUE (user_id, name)
+    CHECK (max_output_price_tokens >= 0)
 );
 
 -- API Keys table - now linked to providers/consumers instead of users
@@ -72,6 +69,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     provider_id UUID REFERENCES providers(id) ON DELETE CASCADE,
     consumer_id UUID REFERENCES consumers(id) ON DELETE CASCADE,
     api_key STRING UNIQUE NOT NULL,
+    description STRING,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),

@@ -8,13 +8,13 @@ INSERT INTO system_settings (setting_key, setting_value, description) VALUES
     ('fee_percentage', '5', 'Service fee percentage (5%)');
 
 -- Create test providers with different reliability patterns
-INSERT INTO users (id, type, username, created_at, updated_at) VALUES
-    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'provider', 'tier1_provider', NOW(), NOW()),     -- Ultra reliable
-    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'provider', 'tier2_provider_a', NOW(), NOW()),   -- Very reliable
-    ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'provider', 'tier2_provider_b', NOW(), NOW()),   -- Very reliable with occasional issues
-    ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'provider', 'tier3_provider_a', NOW(), NOW()),   -- Less reliable
-    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'provider', 'tier3_provider_b', NOW(), NOW()),   -- Unreliable
-    ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'provider', 'new_provider', NOW(), NOW());        -- New provider, no history
+INSERT INTO users (id, username, created_at, updated_at) VALUES
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'tier1_provider', NOW(), NOW()),     -- Ultra reliable
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'tier2_provider_a', NOW(), NOW()),   -- Very reliable
+    ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'tier2_provider_b', NOW(), NOW()),   -- Very reliable with occasional issues
+    ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'tier3_provider_a', NOW(), NOW()),   -- Less reliable
+    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'tier3_provider_b', NOW(), NOW()),   -- Unreliable
+    ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'new_provider', NOW(), NOW());        -- New provider, no history
 
 -- Create providers FIRST (before api_keys that reference them)
 INSERT INTO providers (id, user_id, name, is_available, health_status, tier, paused, api_url, created_at, updated_at) VALUES
@@ -146,11 +146,11 @@ SELECT
 WHERE random() < 0.99;  -- 99% check success rate for initial period
 
 -- Create consumer users first
-INSERT INTO users (id, type, username, created_at, updated_at) VALUES
-    ('11111111-1111-1111-1111-111111111111', 'consumer', 'enterprise_user', NOW(), NOW()),
-    ('22222222-2222-2222-2222-222222222222', 'consumer', 'business_user', NOW(), NOW()),
-    ('33333333-3333-3333-3333-333333333333', 'consumer', 'startup_user', NOW(), NOW()),
-    ('44444444-4444-4444-4444-444444444444', 'consumer', 'individual_user', NOW(), NOW());
+INSERT INTO users (id, username, created_at, updated_at) VALUES
+    ('11111111-1111-1111-1111-111111111111', 'enterprise_user', NOW(), NOW()),
+    ('22222222-2222-2222-2222-222222222222', 'business_user', NOW(), NOW()),
+    ('33333333-3333-3333-3333-333333333333', 'startup_user', NOW(), NOW()),
+    ('44444444-4444-4444-4444-444444444444', 'individual_user', NOW(), NOW());
 
 -- Then create consumers
 INSERT INTO consumers (id, user_id, name, max_input_price_tokens, max_output_price_tokens, created_at, updated_at) VALUES
