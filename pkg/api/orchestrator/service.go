@@ -21,6 +21,7 @@ type Service struct {
 	logger         *common.Logger
 	rmq            *rabbitmq.Client
 	internalAPIKey string
+	userID         uuid.UUID // Stores the current user's ID
 }
 
 // NewService creates a new orchestration service
@@ -59,6 +60,20 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 		return nil, common.ErrUnauthorized(fmt.Errorf("invalid API key"))
 	}
 
+	// Store user_id from auth response
+	userIDStr, ok := authResp["user_id"].(string)
+	if !ok {
+		s.logger.Error("Failed to get user_id from auth response")
+		return nil, common.ErrInternalServer(fmt.Errorf("failed to get user information"))
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		s.logger.Error("Failed to parse user_id: %v", err)
+		return nil, common.ErrInternalServer(fmt.Errorf("invalid user_id format"))
+	}
+	s.userID = userID
+
 	// Check if user has sufficient balance
 	availableBalance, ok := authResp["available_balance"].(float64)
 	if !ok {
@@ -72,13 +87,30 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 		return nil, common.ErrInsufficientFunds(fmt.Errorf("insufficient funds: minimum $1.00 required"))
 	}
 
+	// //1. Get user settings
+	userSettings, err := s.getUserSettings(ctx)
+	if err != nil {
+		s.logger.Error("Failed to get user settings: %v", err)
+		return nil, fmt.Errorf("failed to get user settings: %w", err)
+	}
+
 	// 2. Get consumer settings (global and model-specific)
 	settings, err := s.getConsumerSettings(ctx, consumerID, req.Model)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get consumer settings: %w", err)
 	}
 
-	// 3. Get healthy providers within price constraints
+	var userProviders []ProviderInfo
+	if userSettings.DefaultToOwnModels {
+		// Only get user providers if DefaultToOwnModels is true
+		userProviders, err = s.getUserProviders(ctx, req.Model)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user providers: %w", err)
+		}
+		s.logger.Info("Found %d user providers with DefaultToOwnModels=true", len(userProviders))
+	}
+
+	// 3.b Get healthy providers within price constraints
 	providers, err := s.getHealthyProviders(ctx, req.Model, settings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get healthy providers: %w", err)
@@ -92,6 +124,28 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	selectedProviders := s.selectBestProviders(providers, req.Sort)
 	if len(selectedProviders) == 0 {
 		return nil, fmt.Errorf("no suitable providers found for model %s", req.Model)
+	}
+
+	// If we have user providers, prioritize them
+	if len(userProviders) > 0 {
+		s.logger.Info("GERT: %v", userProviders)
+		// Get up to 3 user providers
+		userProviderCount := min(3, len(userProviders))
+		userProvidersList := userProviders[:userProviderCount]
+
+		// Get up to 3 non-user providers
+		nonUserProviderCount := min(3, len(selectedProviders))
+		nonUserProvidersList := selectedProviders[:nonUserProviderCount]
+
+		// Combine lists with user providers first
+		combinedProviders := make([]ProviderInfo, 0, userProviderCount+nonUserProviderCount)
+		combinedProviders = append(combinedProviders, userProvidersList...)
+		combinedProviders = append(combinedProviders, nonUserProvidersList...)
+
+		s.logger.Info("Combined %d user providers with %d non-user providers",
+			userProviderCount, nonUserProviderCount)
+
+		selectedProviders = combinedProviders
 	}
 
 	// Use first provider for transaction record
@@ -110,31 +164,60 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	}
 
 	// 7. Place holding deposit
-	if err := s.placeHoldingDeposit(ctx, consumerID); err != nil {
+	if err := s.placeHoldingDeposit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to place holding deposit: %w", err)
 	}
 
 	// 8. Send request to provider
 	startTime := time.Now()
-	response, err := s.sendRequestToProvider(ctx, providers, req, hmac)
+	response, successfulProvider, err := s.sendRequestToProvider(ctx, selectedProviders, req, hmac)
 	if err != nil {
 		// Release holding deposit on error
-		_ = s.releaseHoldingDeposit(ctx, consumerID)
+		_ = s.releaseHoldingDeposit(ctx)
 		return nil, fmt.Errorf("failed to send request to provider: %w", err)
 	}
 	latency := time.Since(startTime).Milliseconds()
 
 	// 9. Release holding deposit
-	if err := s.releaseHoldingDeposit(ctx, consumerID); err != nil {
+	if err := s.releaseHoldingDeposit(ctx); err != nil {
 		s.logger.Error("Failed to release holding deposit: %v", err)
 	}
 
 	// 10. Update transaction and publish payment message
-	if err := s.finalizeTransaction(ctx, tx, response, latency); err != nil {
+	if err := s.finalizeTransaction(ctx, tx, response, latency, successfulProvider); err != nil {
 		s.logger.Error("Failed to finalize transaction: %v", err)
 	}
 
 	return response, nil
+}
+
+// UserSettings represents user-specific settings
+type UserSettings struct {
+	DefaultToOwnModels bool
+}
+
+// getUserSettings fetches the user's settings from the database
+func (s *Service) getUserSettings(ctx context.Context) (*UserSettings, error) {
+	var settings UserSettings
+	err := s.db.QueryRowContext(ctx,
+		`SELECT default_to_own_models
+		FROM user_settings
+		WHERE user_id = $1`,
+		s.userID,
+	).Scan(&settings.DefaultToOwnModels)
+
+	if err == sql.ErrNoRows {
+		// If no settings found, return default values
+		return &UserSettings{
+			DefaultToOwnModels: true, // Default value as per schema
+		}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("error getting user settings: %w", err)
+	}
+
+	s.logger.Info("Got user settings - DefaultToOwnModels: %v", settings.DefaultToOwnModels)
+	return &settings, nil
 }
 
 // getConsumerSettings gets the consumer's price settings, including any model-specific overrides
@@ -168,6 +251,67 @@ func (s *Service) getConsumerSettings(ctx context.Context, consumerID uuid.UUID,
 	}
 
 	return &settings, nil
+}
+
+// getUserProviders gets a list of providers that belong to the user
+func (s *Service) getUserProviders(ctx context.Context, model string) ([]ProviderInfo, error) {
+	// Make request to health service with query parameters
+	response, err := common.MakeInternalRequestRaw(
+		ctx,
+		"GET",
+		common.ProviderHealthService,
+		fmt.Sprintf("/api/health/providers/user?user_id=%s&model_name=%s", s.userID, model),
+		nil, // No body for GET request
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error getting user providers from health service: %w", err)
+	}
+
+	// Parse response as array
+	var providersData []map[string]interface{}
+	if err := json.Unmarshal(response, &providersData); err != nil {
+		return nil, fmt.Errorf("error decoding response: %w", err)
+	}
+
+	s.logger.Info("Got response from health service: %v", string(response))
+	s.logger.Info("Number of user providers returned: %d", len(providersData))
+
+	// Convert response to ProviderInfo slice
+	providers := make([]ProviderInfo, 0, len(providersData))
+	for _, providerMap := range providersData {
+		// Skip if any required field is nil
+		if providerMap["provider_id"] == nil ||
+			providerMap["input_cost"] == nil ||
+			providerMap["output_cost"] == nil ||
+			providerMap["tier"] == nil ||
+			providerMap["health_status"] == nil ||
+			providerMap["average_tps"] == nil ||
+			providerMap["api_url"] == nil {
+			s.logger.Error("Skipping provider with nil fields: %v", providerMap)
+			continue
+		}
+
+		// Skip if API URL is empty
+		apiURL := providerMap["api_url"].(string)
+		if apiURL == "" {
+			s.logger.Error("Skipping provider %s with empty API URL", providerMap["provider_id"])
+			continue
+		}
+
+		provider := ProviderInfo{
+			ProviderID:        uuid.MustParse(providerMap["provider_id"].(string)),
+			URL:               apiURL,
+			InputPriceTokens:  providerMap["input_cost"].(float64),
+			OutputPriceTokens: providerMap["output_cost"].(float64),
+			Tier:              int(providerMap["tier"].(float64)),
+			HealthStatus:      providerMap["health_status"].(string),
+			AverageTPS:        providerMap["average_tps"].(float64),
+		}
+		providers = append(providers, provider)
+	}
+
+	s.logger.Info("Found %d valid user providers after filtering", len(providers))
+	return providers, nil
 }
 
 // getHealthyProviders gets a list of healthy providers that support the requested model
@@ -254,31 +398,44 @@ func (s *Service) selectBestProviders(providers []ProviderInfo, sortBy string) [
 	scored := make([]scoredProvider, 0, len(providers))
 	s.logger.Info("Scoring %d providers", len(providers))
 
+	// Find max TPS for normalization
+	var maxTPS float64
+	for _, p := range providers {
+		if p.AverageTPS > maxTPS {
+			maxTPS = p.AverageTPS
+		}
+	}
+
 	// Set weights based on sort preference
 	var priceWeight, tpsWeight float64
 	switch sortBy {
 	case "throughput":
-		s.logger.Info("GERT Sorting by throughput")
+		s.logger.Info("Sorting by throughput")
 		priceWeight = 0.2 // 20% price
 		tpsWeight = 0.8   // 80% throughput
 	default: // "cost" or empty
-		s.logger.Info("GERT Sorting by cost")
+		s.logger.Info("Sorting by cost")
 		priceWeight = 0.7 // 70% price
 		tpsWeight = 0.3   // 30% throughput
 	}
 
 	// Calculate scores for all providers
 	for _, p := range providers {
-		// Lower price and higher TPS is better
-		priceScore := 1.0 / (p.InputPriceTokens + p.OutputPriceTokens)
-		tpsScore := p.AverageTPS // Higher TPS is directly better
+		totalPrice := p.InputPriceTokens + p.OutputPriceTokens
 
-		// Apply weights based on sort preference
+		// Normalize scores to 0-1 range
+		// For price: lower is better, so we invert the relationship
+		priceScore := 1.0 - (totalPrice / (totalPrice + 1.0)) // Asymptotic normalization
+
+		// For TPS: higher is better, normalize against max TPS
+		tpsScore := p.AverageTPS / maxTPS
+
+		// Apply weights and combine scores
 		score := (priceScore * priceWeight) + (tpsScore * tpsWeight)
 
 		scored = append(scored, scoredProvider{p, score})
-		s.logger.Info("Provider %s scored %f (price: %f, tps: %f, sort: %s)",
-			p.ProviderID, score, p.InputPriceTokens+p.OutputPriceTokens, p.AverageTPS, sortBy)
+		s.logger.Info("Provider %s scored %f (price: %f, tps: %f, normalized_price_score: %f, normalized_tps_score: %f, sort: %s)",
+			p.ProviderID, score, totalPrice, p.AverageTPS, priceScore, tpsScore, sortBy)
 	}
 
 	// Sort by score in descending order
@@ -372,16 +529,16 @@ func (s *Service) createTransaction(ctx context.Context, consumerID uuid.UUID, p
 }
 
 // placeHoldingDeposit places a holding deposit for a consumer
-func (s *Service) placeHoldingDeposit(ctx context.Context, consumerID uuid.UUID) error {
-	// Make internal request to auth service
+func (s *Service) placeHoldingDeposit(ctx context.Context) error {
+	// Make internal request to auth service using stored userID
 	resp, err := common.MakeInternalRequest(
 		ctx,
 		"POST",
 		common.AuthService,
 		"/api/auth/hold",
 		HoldDepositRequest{
-			ConsumerID: consumerID,
-			Amount:     1.0, // $1 holding deposit
+			UserID: s.userID,
+			Amount: 1.0, // $1 holding deposit
 		},
 	)
 	if err != nil {
@@ -396,16 +553,16 @@ func (s *Service) placeHoldingDeposit(ctx context.Context, consumerID uuid.UUID)
 }
 
 // releaseHoldingDeposit releases a holding deposit for a consumer
-func (s *Service) releaseHoldingDeposit(ctx context.Context, consumerID uuid.UUID) error {
-	// Make internal request to auth service
+func (s *Service) releaseHoldingDeposit(ctx context.Context) error {
+	// Make internal request to auth service using stored userID
 	resp, err := common.MakeInternalRequest(
 		ctx,
 		"POST",
 		common.AuthService,
 		"/api/auth/release",
 		ReleaseHoldRequest{
-			ConsumerID: consumerID,
-			Amount:     1.0, // $1 holding deposit
+			UserID: s.userID,
+			Amount: 1.0, // $1 holding deposit
 		},
 	)
 	if err != nil {
@@ -419,13 +576,13 @@ func (s *Service) releaseHoldingDeposit(ctx context.Context, consumerID uuid.UUI
 	return nil
 }
 
-func (s *Service) sendRequestToProvider(ctx context.Context, providers []ProviderInfo, req *OpenAIRequest, hmac string) (interface{}, error) {
+func (s *Service) sendRequestToProvider(ctx context.Context, providers []ProviderInfo, req *OpenAIRequest, hmac string) (interface{}, *ProviderInfo, error) {
 	var lastErr error
 
 	// Get original request path from context
 	originalPath, ok := ctx.Value("original_path").(string)
 	if !ok || originalPath == "" {
-		return nil, common.ErrBadRequest(fmt.Errorf("missing request path"))
+		return nil, nil, common.ErrBadRequest(fmt.Errorf("missing request path"))
 	}
 
 	for i, provider := range providers {
@@ -472,16 +629,15 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 		// If we get here, the request was successful
 		s.logger.Info("Request successful with provider %s", provider.ProviderID)
-		return response, nil
+		return response, &provider, nil
 	}
 
 	// If we get here, all providers failed
-	return nil, fmt.Errorf("all providers failed. Last error: %v", lastErr)
+	return nil, nil, fmt.Errorf("all providers failed. Last error: %v", lastErr)
 }
 
 // finalizeTransaction updates the transaction with completion details
-func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord, response interface{}, latency int64) error {
-
+func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord, response interface{}, latency int64, provider *ProviderInfo) error {
 	// Extract response data from interface
 	responseMap, ok := response.(map[string]interface{})
 	if !ok {
@@ -507,14 +663,17 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 	totalInputTokens := int(usage["prompt_tokens"].(float64))
 	totalOutputTokens := int(usage["completion_tokens"].(float64))
 
-	// Update transaction with completion details
+	// Update transaction with completion details and the successful provider's information
 	query := `
 		UPDATE transactions 
 		SET total_input_tokens = $1,
 			total_output_tokens = $2,
 			latency = $3,
-			status = 'payment'
-		WHERE id = $4
+			status = 'payment',
+			provider_id = $4,           -- Update to successful provider
+			input_price_tokens = $5,    -- Update to successful provider's pricing
+			output_price_tokens = $6    -- Update to successful provider's pricing
+		WHERE id = $7
 		RETURNING id`
 
 	var transactionID uuid.UUID
@@ -522,23 +681,29 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		totalInputTokens,
 		totalOutputTokens,
 		latency,
+		provider.ProviderID,        // Use successful provider's ID
+		provider.InputPriceTokens,  // Use successful provider's pricing
+		provider.OutputPriceTokens, // Use successful provider's pricing
 		tx.ID,
 	).Scan(&transactionID)
 
 	if err != nil {
+		s.logger.Error("Failed to update transaction with successful provider info: %v", err)
 		return fmt.Errorf("failed to update transaction: %w", err)
 	}
 
-	// Create payment message
+	s.logger.Info("Updated transaction %s with successful provider %s", tx.ID, provider.ProviderID)
+
+	// Create payment message with the successful provider's information
 	paymentMsg := PaymentMessage{
 		ConsumerID:        tx.ConsumerID,
-		ProviderID:        tx.ProviderID,
+		ProviderID:        provider.ProviderID,
 		HMAC:              tx.HMAC,
 		ModelName:         tx.ModelName,
 		TotalInputTokens:  totalInputTokens,
 		TotalOutputTokens: totalOutputTokens,
-		InputPriceTokens:  tx.InputPriceTokens,
-		OutputPriceTokens: tx.OutputPriceTokens,
+		InputPriceTokens:  provider.InputPriceTokens,  // Use successful provider's pricing
+		OutputPriceTokens: provider.OutputPriceTokens, // Use successful provider's pricing
 		Latency:           latency,
 	}
 
@@ -558,7 +723,7 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		return fmt.Errorf("failed to publish payment message: %w", err)
 	}
 
-	s.logger.Info("Published payment message for transaction %s", tx.ID)
+	s.logger.Info("Published payment message for transaction %s with successful provider %s", tx.ID, provider.ProviderID)
 	return nil
 }
 

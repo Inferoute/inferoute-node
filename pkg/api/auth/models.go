@@ -40,15 +40,14 @@ type Consumer struct {
 	UpdatedAt            time.Time `json:"updated_at"`
 }
 
-// Balance represents a provider or consumer balance
+// Balance represents a user's balance
 type Balance struct {
-	ID              uuid.UUID  `json:"id"`
-	ProviderID      *uuid.UUID `json:"provider_id,omitempty"`
-	ConsumerID      *uuid.UUID `json:"consumer_id,omitempty"`
-	AvailableAmount float64    `json:"available_amount"`
-	HeldAmount      float64    `json:"held_amount"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID              uuid.UUID `json:"id"`
+	UserID          uuid.UUID `json:"user_id"`
+	AvailableAmount float64   `json:"available_amount"`
+	HeldAmount      float64   `json:"held_amount"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // APIKey represents an API key for a provider or consumer
@@ -123,8 +122,8 @@ type ValidateAPIKeyResponse struct {
 
 // HoldDepositRequest represents a request to place a hold on a balance
 type HoldDepositRequest struct {
-	ConsumerID uuid.UUID `json:"consumer_id" validate:"required"`
-	Amount     float64   `json:"amount" validate:"required,min=0"`
+	UserID uuid.UUID `json:"user_id" validate:"required"`
+	Amount float64   `json:"amount" validate:"required,min=0"`
 }
 
 // HoldDepositResponse represents the response to a hold deposit request
@@ -135,8 +134,8 @@ type HoldDepositResponse struct {
 
 // ReleaseHoldRequest represents a request to release a hold on a balance
 type ReleaseHoldRequest struct {
-	ConsumerID uuid.UUID `json:"consumer_id" validate:"required"`
-	Amount     float64   `json:"amount" validate:"required,min=0"`
+	UserID uuid.UUID `json:"user_id" validate:"required"`
+	Amount float64   `json:"amount" validate:"required,min=0"`
 }
 
 // ReleaseHoldResponse represents the response to a release hold request

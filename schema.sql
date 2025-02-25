@@ -14,6 +14,8 @@ DROP TABLE IF EXISTS provider_health_history;
 DROP TABLE IF EXISTS system_settings;
 DROP TABLE IF EXISTS consumers;
 DROP TABLE IF EXISTS consumer_models;
+DROP TABLE IF EXISTS user_settings;
+DROP TABLE IF EXISTS provider_cheating_incidents;
 
 -- Create system_settings table
 CREATE TABLE IF NOT EXISTS system_settings (
@@ -31,6 +33,21 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp()
 );
+
+-- User Settings table
+CREATE TABLE IF NOT EXISTS user_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    max_input_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
+    max_output_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
+    default_to_own_models BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    UNIQUE (user_id),
+    CHECK (max_input_price_tokens >= 0),
+    CHECK (max_output_price_tokens >= 0)
+);
+
 
 -- Providers table (renamed from provider_status)
 CREATE TABLE IF NOT EXISTS providers (
@@ -78,19 +95,20 @@ CREATE TABLE IF NOT EXISTS api_keys (
     INDEX (consumer_id)
 );
 
--- Balances table (for tracking consumer/provider funds)
+-- Balances table (for tracking user funds)
 CREATE TABLE IF NOT EXISTS balances (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    provider_id UUID REFERENCES providers(id) ON DELETE CASCADE,
-    consumer_id UUID REFERENCES consumers(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     available_amount DECIMAL(18,8) NOT NULL DEFAULT 0,
     held_amount DECIMAL(18,8) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
-    CHECK ((provider_id IS NULL AND consumer_id IS NOT NULL) OR (provider_id IS NOT NULL AND consumer_id IS NULL)),
     CHECK (available_amount >= 0),
     CHECK (held_amount >= 0)
 );
+
+-- Add index for faster balance lookups
+CREATE INDEX idx_balances_user_id ON balances(user_id);
 
 -- Provider Models table (for tracking which models each provider supports)
 CREATE TABLE IF NOT EXISTS provider_models (
@@ -159,6 +177,24 @@ CREATE TABLE IF NOT EXISTS consumer_models (
     CHECK (max_output_price_tokens >= 0)
 );
 
+-- Create provider_cheating_incidents table
+CREATE TABLE IF NOT EXISTS provider_cheating_incidents (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    provider_id UUID NOT NULL REFERENCES providers(id),
+    provider_model_id UUID NOT NULL REFERENCES provider_models(id),
+    transaction_hmac TEXT NOT NULL,
+    transaction_created_at TIMESTAMP NOT NULL,
+    transaction_updated_at TIMESTAMP NOT NULL,
+    model_updated_at TIMESTAMP NOT NULL,
+    input_price_tokens DECIMAL(10, 6) NOT NULL,
+    output_price_tokens DECIMAL(10, 6) NOT NULL,
+    total_input_tokens INTEGER NOT NULL,
+    total_output_tokens INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_provider_cheating_incidents_provider FOREIGN KEY (provider_id) REFERENCES providers(id),
+    CONSTRAINT fk_provider_cheating_incidents_provider_model FOREIGN KEY (provider_model_id) REFERENCES provider_models(id)
+);
+
 -- Create triggers to update updated_at timestamps
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -213,3 +249,11 @@ CREATE TRIGGER update_consumer_models_updated_at
     BEFORE UPDATE ON consumer_models
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER update_user_settings_updated_at
+    BEFORE UPDATE ON user_settings
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_provider_cheating_incidents_provider_id ON provider_cheating_incidents(provider_id);
+CREATE INDEX IF NOT EXISTS idx_provider_cheating_incidents_transaction_hmac ON provider_cheating_incidents(transaction_hmac);

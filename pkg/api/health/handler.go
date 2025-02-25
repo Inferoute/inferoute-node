@@ -40,6 +40,9 @@ func (h *Handler) Register(e *echo.Echo) {
 	// Filter for Healthy providers
 	g.GET("/providers/filter", h.FilterProviders)
 
+	// Filter providers by user
+	g.GET("/providers/user", h.FilterUserProviders)
+
 	// Manual triggers - internal only
 	internalGroup := g.Group("/providers", common.InternalOnly())
 	internalGroup.POST("/update-tiers", h.TriggerUpdateTiers)
@@ -275,4 +278,87 @@ func (h *Handler) TriggerCheckStale(c echo.Context) error {
 	return c.JSON(http.StatusOK, TriggerHealthChecksResponse{
 		ProvidersUpdated: updatedCount,
 	})
+}
+
+// @Summary Filter providers by user ID
+// @Description Get a list of providers belonging to a specific user
+// @Tags providers
+// @Accept json
+// @Produce json
+// @Param user_id query string true "User ID to filter by"
+// @Param model_name query string false "Optional model name to filter by"
+// @Success 200 {array} FilterProvidersResponse
+// @Failure 400 {object} common.ErrorResponse
+// @Failure 500 {object} common.ErrorResponse
+// @Router /api/health/providers/user [get]
+func (h *Handler) FilterUserProviders(c echo.Context) error {
+	var req struct {
+		UserID    string `query:"user_id" validate:"required"`
+		ModelName string `query:"model_name"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return common.NewBadRequestError("invalid request parameters")
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		return common.NewBadRequestError("validation failed")
+	}
+
+	query := `
+		WITH user_providers AS (
+			SELECT p.id as provider_id, p.tier, p.health_status, 
+				   u.username, COALESCE(p.api_url, '') as api_url
+			FROM providers p
+			JOIN users u ON u.id = p.user_id
+			WHERE p.user_id = $1
+			AND p.health_status != 'red'
+			AND p.is_available = true
+			AND NOT p.paused
+		)
+		SELECT 
+			up.provider_id,
+			up.username,
+			up.tier,
+			up.health_status,
+			up.api_url,
+			pm.input_price_tokens,
+			pm.output_price_tokens,
+			pm.average_tps
+		FROM user_providers up
+		JOIN provider_models pm ON pm.provider_id = up.provider_id
+		WHERE ($2 = '' OR pm.model_name = $2)
+		AND pm.is_active = true
+		ORDER BY up.tier ASC, pm.average_tps DESC;
+	`
+
+	rows, err := h.service.db.QueryContext(c.Request().Context(), query, req.UserID, req.ModelName)
+	if err != nil {
+		return common.NewInternalError("database error", err)
+	}
+	defer rows.Close()
+
+	var providers []FilterProvidersResponse
+	for rows.Next() {
+		var p FilterProvidersResponse
+		err := rows.Scan(
+			&p.ProviderID,
+			&p.Username,
+			&p.Tier,
+			&p.HealthStatus,
+			&p.APIURL,
+			&p.InputCost,
+			&p.OutputCost,
+			&p.AverageTPS,
+		)
+		if err != nil {
+			return common.NewInternalError("error scanning results", err)
+		}
+		providers = append(providers, p)
+	}
+
+	if err = rows.Err(); err != nil {
+		return common.NewInternalError("error iterating results", err)
+	}
+
+	return c.JSON(http.StatusOK, providers)
 }

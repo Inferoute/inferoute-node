@@ -105,7 +105,7 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 				`SELECT p.id, p.user_id, COALESCE(b.available_amount, 0), COALESCE(b.held_amount, 0)
 				FROM providers p
 				JOIN users u ON u.id = p.user_id
-				LEFT JOIN balances b ON b.provider_id = p.id
+				LEFT JOIN balances b ON b.user_id = p.user_id
 				WHERE p.id = $1`,
 				apiKey.ProviderID,
 			).Scan(&provider.ID, &userID, &availableBalance, &heldBalance)
@@ -138,7 +138,7 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 				`SELECT c.id, c.user_id, COALESCE(b.available_amount, 0), COALESCE(b.held_amount, 0)
 				FROM consumers c
 				JOIN users u ON u.id = c.user_id
-				LEFT JOIN balances b ON b.consumer_id = c.id
+				LEFT JOIN balances b ON b.user_id = c.user_id
 				WHERE c.id = $1`,
 				apiKey.ConsumerID,
 			).Scan(&consumer.ID, &userID, &availableBalance, &heldBalance)
@@ -172,23 +172,23 @@ func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest)
 	return &response, nil
 }
 
-// HoldDeposit places a hold on a consumer's balance
+// HoldDeposit places a hold on a user's balance
 func (s *Service) HoldDeposit(ctx context.Context, req HoldDepositRequest) (*HoldDepositResponse, error) {
 	var response HoldDepositResponse
 
 	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
 		var balance Balance
 		err := tx.QueryRowContext(ctx,
-			`SELECT id, consumer_id, available_amount, held_amount, created_at, updated_at
+			`SELECT id, user_id, available_amount, held_amount, created_at, updated_at
 			FROM balances
-			WHERE consumer_id = $1
+			WHERE user_id = $1
 			FOR UPDATE`,
-			req.ConsumerID,
-		).Scan(&balance.ID, &balance.ConsumerID, &balance.AvailableAmount,
+			req.UserID,
+		).Scan(&balance.ID, &balance.UserID, &balance.AvailableAmount,
 			&balance.HeldAmount, &balance.CreatedAt, &balance.UpdatedAt)
 
 		if err == sql.ErrNoRows {
-			return common.ErrNotFound(fmt.Errorf("balance not found for consumer %s", req.ConsumerID))
+			return common.ErrNotFound(fmt.Errorf("balance not found for user %s", req.UserID))
 		}
 		if err != nil {
 			return fmt.Errorf("error fetching balance: %v", err)
@@ -227,23 +227,23 @@ func (s *Service) HoldDeposit(ctx context.Context, req HoldDepositRequest) (*Hol
 	return &response, nil
 }
 
-// ReleaseHold releases a hold on a consumer's balance
+// ReleaseHold releases a hold on a user's balance
 func (s *Service) ReleaseHold(ctx context.Context, req ReleaseHoldRequest) (*ReleaseHoldResponse, error) {
 	var response ReleaseHoldResponse
 
 	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
 		var balance Balance
 		err := tx.QueryRowContext(ctx,
-			`SELECT id, consumer_id, available_amount, held_amount, created_at, updated_at
+			`SELECT id, user_id, available_amount, held_amount, created_at, updated_at
 			FROM balances
-			WHERE consumer_id = $1
+			WHERE user_id = $1
 			FOR UPDATE`,
-			req.ConsumerID,
-		).Scan(&balance.ID, &balance.ConsumerID, &balance.AvailableAmount,
+			req.UserID,
+		).Scan(&balance.ID, &balance.UserID, &balance.AvailableAmount,
 			&balance.HeldAmount, &balance.CreatedAt, &balance.UpdatedAt)
 
 		if err == sql.ErrNoRows {
-			return common.ErrNotFound(fmt.Errorf("balance not found for consumer %s", req.ConsumerID))
+			return common.ErrNotFound(fmt.Errorf("balance not found for user %s", req.UserID))
 		}
 		if err != nil {
 			return fmt.Errorf("error fetching balance: %v", err)

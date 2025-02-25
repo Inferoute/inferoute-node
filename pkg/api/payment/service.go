@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sentnl/inferoute-node/internal/db"
@@ -84,16 +85,77 @@ func (s *Service) getFeePercentage(ctx context.Context, tx *sql.Tx) (float64, er
 	return fee / 100.0, nil // Convert percentage to decimal
 }
 
+// checkForPricingCheating checks if a provider updated their pricing during transaction processing
+func (s *Service) checkForPricingCheating(ctx context.Context, tx *sql.Tx, msg *PaymentMessage) (bool, uuid.UUID, error) {
+	var providerModelID uuid.UUID
+	var modelUpdatedAt time.Time
+	var transactionCreatedAt, transactionUpdatedAt time.Time
+
+	// Get the provider_model ID and its updated_at timestamp
+	err := tx.QueryRowContext(ctx, `
+		SELECT id, updated_at 
+		FROM provider_models 
+		WHERE provider_id = $1 AND model_name = $2`,
+		msg.ProviderID, msg.ModelName,
+	).Scan(&providerModelID, &modelUpdatedAt)
+	if err != nil {
+		return false, uuid.Nil, fmt.Errorf("failed to get provider model details: %w", err)
+	}
+
+	// Get transaction timestamps
+	err = tx.QueryRowContext(ctx, `
+		SELECT created_at, updated_at 
+		FROM transactions 
+		WHERE hmac = $1`,
+		msg.HMAC,
+	).Scan(&transactionCreatedAt, &transactionUpdatedAt)
+	if err != nil {
+		return false, uuid.Nil, fmt.Errorf("failed to get transaction timestamps: %w", err)
+	}
+
+	// Check if model was updated during transaction processing
+	if modelUpdatedAt.After(transactionCreatedAt) && modelUpdatedAt.Before(transactionUpdatedAt) {
+		// Record the cheating incident
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO provider_cheating_incidents (
+				provider_id, provider_model_id, transaction_hmac,
+				transaction_created_at, transaction_updated_at, model_updated_at,
+				input_price_tokens, output_price_tokens,
+				total_input_tokens, total_output_tokens
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			msg.ProviderID, providerModelID, msg.HMAC,
+			transactionCreatedAt, transactionUpdatedAt, modelUpdatedAt,
+			msg.InputPriceTokens, msg.OutputPriceTokens,
+			msg.TotalInputTokens, msg.TotalOutputTokens,
+		)
+		if err != nil {
+			return true, providerModelID, fmt.Errorf("failed to record cheating incident: %w", err)
+		}
+		return true, providerModelID, nil
+	}
+
+	return false, providerModelID, nil
+}
+
 // processPayment handles the payment processing logic
 func (s *Service) processPayment(msg *PaymentMessage) error {
 	// Start a transaction
 	var feePercentage float64
+	var isCheating bool
+
 	err := s.db.ExecuteTx(context.Background(), func(tx *sql.Tx) error {
 		var err error
 		feePercentage, err = s.getFeePercentage(context.Background(), tx)
 		if err != nil {
 			return fmt.Errorf("failed to get fee percentage: %w", err)
 		}
+
+		// Check for pricing cheating
+		isCheating, _, err = s.checkForPricingCheating(context.Background(), tx, msg)
+		if err != nil {
+			return fmt.Errorf("failed to check for pricing cheating: %w", err)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -103,14 +165,46 @@ func (s *Service) processPayment(msg *PaymentMessage) error {
 	// Calculate tokens per second
 	tokensPerSecond := float64(msg.TotalOutputTokens) / (float64(msg.Latency) / 1000.0)
 
-	// Calculate costs using prices from the message (per million tokens)
-	inputCost := float64(msg.TotalInputTokens) * (msg.InputPriceTokens / 1_000_000.0)
-	outputCost := float64(msg.TotalOutputTokens) * (msg.OutputPriceTokens / 1_000_000.0)
-	totalCost := inputCost + outputCost
+	// Get user IDs for both consumer and provider
+	var consumerUserID, providerUserID uuid.UUID
+	err = s.db.QueryRowContext(context.Background(),
+		`SELECT user_id FROM consumers WHERE id = $1`,
+		msg.ConsumerID,
+	).Scan(&consumerUserID)
+	if err != nil {
+		return fmt.Errorf("failed to get consumer user_id: %w", err)
+	}
 
-	// Calculate service fee using the percentage from the database
-	serviceFee := totalCost * feePercentage
-	providerEarnings := totalCost - serviceFee
+	err = s.db.QueryRowContext(context.Background(),
+		`SELECT user_id FROM providers WHERE id = $1`,
+		msg.ProviderID,
+	).Scan(&providerUserID)
+	if err != nil {
+		return fmt.Errorf("failed to get provider user_id: %w", err)
+	}
+
+	var serviceFee, providerEarnings, totalCost float64
+
+	if isCheating {
+		s.logger.Warn("Provider %s attempted to change pricing during transaction %s - applying penalty", msg.ProviderID, msg.HMAC)
+		// In case of cheating, charge $1 service fee and no provider earnings
+		serviceFee = 1.0
+		providerEarnings = 0
+		totalCost = serviceFee
+	} else if consumerUserID == providerUserID {
+		// If same user, no fees or costs
+		serviceFee = 0
+		providerEarnings = 0
+		totalCost = 0
+		s.logger.Info("Consumer and provider belong to same user - no fees or costs applied")
+	} else {
+		// Calculate costs using prices from the message (per million tokens)
+		inputCost := float64(msg.TotalInputTokens) * (msg.InputPriceTokens / 1_000_000.0)
+		outputCost := float64(msg.TotalOutputTokens) * (msg.OutputPriceTokens / 1_000_000.0)
+		totalCost = inputCost + outputCost
+		serviceFee = totalCost * feePercentage
+		providerEarnings = totalCost - serviceFee
+	}
 
 	// Update the provider model's average TPS and transaction count
 	err = s.db.ExecuteTx(context.Background(), func(tx *sql.Tx) error {
@@ -156,8 +250,8 @@ func (s *Service) processPayment(msg *PaymentMessage) error {
 			consumer_cost = $2,
 			provider_earnings = $3,
 			service_fee = $4,
-			status = 'completed'
-		WHERE hmac = $5
+			status = CASE WHEN $5 THEN 'cheating_detected' ELSE 'completed' END
+		WHERE hmac = $6
 	`
 
 	if _, err := s.db.Exec(
@@ -166,18 +260,21 @@ func (s *Service) processPayment(msg *PaymentMessage) error {
 		totalCost,
 		providerEarnings,
 		serviceFee,
+		isCheating,
 		msg.HMAC,
 	); err != nil {
 		return fmt.Errorf("failed to update transaction: %w", err)
 	}
 
-	// Process the actual payments
-	if err := s.processConsumerDebit(msg.ConsumerID, totalCost); err != nil {
-		return fmt.Errorf("failed to process consumer debit: %w", err)
-	}
+	// Only process actual payments if not a cheating case
+	if !isCheating && consumerUserID != providerUserID {
+		if err := s.processConsumerDebit(msg.ConsumerID, totalCost); err != nil {
+			return fmt.Errorf("failed to process consumer debit: %w", err)
+		}
 
-	if err := s.processProviderCredit(msg.ProviderID, providerEarnings); err != nil {
-		return fmt.Errorf("failed to process provider credit: %w", err)
+		if err := s.processProviderCredit(msg.ProviderID, providerEarnings); err != nil {
+			return fmt.Errorf("failed to process provider credit: %w", err)
+		}
 	}
 
 	return nil
@@ -185,26 +282,48 @@ func (s *Service) processPayment(msg *PaymentMessage) error {
 
 // processConsumerDebit handles the debiting of funds from the consumer's balance
 func (s *Service) processConsumerDebit(consumerID uuid.UUID, amount float64) error {
-	_, err := s.db.Exec(
+	// First get the user_id for this consumer
+	var userID uuid.UUID
+	err := s.db.QueryRowContext(context.Background(),
+		`SELECT user_id FROM consumers WHERE id = $1`,
+		consumerID,
+	).Scan(&userID)
+	if err != nil {
+		return fmt.Errorf("error getting user_id for consumer: %w", err)
+	}
+
+	// Now update the user's balance
+	_, err = s.db.Exec(
 		`UPDATE balances 
 		SET available_amount = available_amount - $1,
 			updated_at = NOW()
-		WHERE consumer_id = $2`,
+		WHERE user_id = $2`,
 		amount,
-		consumerID,
+		userID,
 	)
 	return err
 }
 
 // processProviderCredit handles the crediting of funds to the provider's balance
 func (s *Service) processProviderCredit(providerID uuid.UUID, amount float64) error {
-	_, err := s.db.Exec(
+	// First get the user_id for this provider
+	var userID uuid.UUID
+	err := s.db.QueryRowContext(context.Background(),
+		`SELECT user_id FROM providers WHERE id = $1`,
+		providerID,
+	).Scan(&userID)
+	if err != nil {
+		return fmt.Errorf("error getting user_id for provider: %w", err)
+	}
+
+	// Now update the user's balance
+	_, err = s.db.Exec(
 		`UPDATE balances 
 		SET available_amount = available_amount + $1,
 			updated_at = NOW()
-		WHERE provider_id = $2`,
+		WHERE user_id = $2`,
 		amount,
-		providerID,
+		userID,
 	)
 	return err
 }

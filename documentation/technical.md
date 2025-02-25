@@ -114,13 +114,21 @@ The orchestrator is the central controller that coordinates the request workflow
    - Verifies sufficient balance (minimum $1.00)
    - Retrieves available balance information
 
-2. **Consumer Settings Resolution**
+2. **User Settings Resolution**
+   - Fetches user settings from database
+   - Checks `default_to_own_models` setting (defaults to true if not set)
+   - This setting determines if a user's own providers should be prioritized
+
+3. **Consumer Settings Resolution**
    - Fetches consumer's price constraints from database
    - Checks model-specific settings in `consumer_models` table first
    - Falls back to global settings from `consumers` table if no model-specific settings exist
    - Settings include maximum prices for input and output tokens
 
-3. **Provider Selection**
+4. **Provider Selection**
+   - If `default_to_own_models` is true:
+     - Fetches user's own providers that support the requested model
+     - Up to 3 user providers will be prioritized at the front of the provider list
    - Queries Health Service for available providers (`/api/health/providers/filter`)
    - Filters based on:
      - Requested model availability
@@ -133,7 +141,7 @@ The orchestrator is the central controller that coordinates the request workflow
      - Active status
      - Compatible pricing
 
-4. **Provider Scoring & Selection**
+5. **Provider Scoring & Selection**
    - Scores providers using weighted criteria based on `sort` parameter:
      - For `sort=cost` (default):
        - Price Score (70%): Inverse of total token price (input + output)
@@ -141,40 +149,48 @@ The orchestrator is the central controller that coordinates the request workflow
      - For `sort=throughput`:
        - Price Score (20%): Inverse of total token price
        - Performance Score (80%): Average tokens per second (TPS)
-   - Selects top 3 providers ordered by score
-   - Uses first provider as primary, others as fallbacks
+   - For non-user providers:
+     - Selects top 3 providers ordered by score
+   - Final provider list composition:
+     - If user has own providers and `default_to_own_models` is true:
+       - Up to 3 user providers at the front
+       - Up to 3 non-user providers as fallbacks
+     - Otherwise:
+       - Up to 3 non-user providers only
    - Sort parameter can be included in request: `{"sort": "throughput"}` or `{"sort": "cost"}`
 
-5. **Transaction Management**
+6. **Transaction Management**
    - Generates unique HMAC for request tracking
    - Creates transaction record with 'pending' status
    - Places $1.00 holding deposit via Auth Service
    - Records provider prices, model, and transaction details
 
-6. **Request Processing**
+7. **Request Processing**
    - Forwards request to Provider Communication Service
+   - Tries providers in order (user providers first if applicable)
    - Includes:
      - Provider URL
      - HMAC
      - Original request data
      - Model information
    - Measures request latency
-   - Handles provider failures by trying fallback providers
+   - Handles provider failures by trying next provider in list
 
-7. **Response & Cleanup**
+8. **Response & Cleanup**
    - Returns provider response to consumer
    - Releases holding deposit
    - Updates transaction with:
      - Input/output token counts
      - Latency metrics
+     - Successful provider's ID and pricing
      - Changes status to 'payment'
 
-8. **Payment Processing**
+9. **Payment Processing**
    - Publishes payment message to RabbitMQ
    - Includes:
      - Transaction details
      - Token counts
-     - Price information
+     - Successful provider's pricing
      - Latency metrics
    - Payment service handles actual fund transfers asynchronously
 
@@ -186,8 +202,9 @@ The orchestrator is the central controller that coordinates the request workflow
 
 ### Key Features:
 - Smart provider selection based on price and performance
+- User provider prioritization with opt-out capability
 - Fallback provider support
-- Transaction tracking
+- Transaction tracking with successful provider updates
 - Asynchronous payment processing
 - Model-specific price constraints
 - Holding deposit system for transaction safety
@@ -277,15 +294,15 @@ POST /api/auth/validate
     - For providers: tier and health status
 
 POST /api/auth/hold
-  - Places a temporary hold on consumer's deposit of $1
-  - Only applicable for consumer accounts
+  - Places a temporary hold on a users balance of X amount
+  - Only applicable for consumer requests.
   - Used before processing transactions
   - Prevents double-spending
   - Protected by X-Internal-Key
 
 POST /api/auth/release
-  - Releases a previously held deposit of $1.00
-  - Only applicable for consumer accounts
+  - Releases a previously held deposit of X amount
+  - Only applicable for consumer requests.
   - Used after successful transaction completion
   - Protected by X-Internal-Key
 
@@ -370,7 +387,6 @@ POST /api/auth/release
     - Returns:
       - Success status and message
 
-Create abnother API to allow providers to change their URL endpoint (container willd o this autopmactially)
 
 ## 5.  Provider Communication Service (Go) - DONE!!!!
 
@@ -448,7 +464,7 @@ Create abnother API to allow providers to change their URL endpoint (container w
 
 -  **Role:** Handles the asynchronous financial operations after the main workflow is complete.
 
--  **Workflow:** Consumes messages from a RabbitMQ queue, then debits the consumer, credits the provider, computes tokens per second, and releases the holding deposit.
+-  **Workflow:** Consumes messages from a RabbitMQ queue, then debits the user (owner of consumer) balance, credits the user (owner of provider) balance, computes tokens per second, and releases the holding deposit.
 
 - Once a transaction is completed the orchestrator should send a message to the payment service to process the transaction.
 - The rabbitmq will include the following details:
@@ -514,8 +530,48 @@ Note: The periodic checking of stale providers and tier updates has been moved t
  - GET /api/health/providers/healthy:  Get a list of healthy providers (providers that are green)
  - GET /api/health/providers/filter: Get a list of healthy providers offering a specific model within cost constraints	
  - GET /api/health/provider/:provider_id: Get the health status of a specific provider
+ - GET /api/health/providers/user: Get a list of healthy providers (green/orange) belonging to a specific user, optionally filtered by model name
  - POST /api/health/providers/update-tiers: Manually triggers the tier update process for all providers based on their health history (protected by INTERNAL_API_KEY)
  - POST /api/health/providers/check-stale - Manually triggers the check for stale providers that haven't sent health updates recently. (protected by INTERNAL_API_KEY)
+
+**API Details:**
+
+1. **GET /api/health/providers/healthy**
+   - Returns only providers with 'green' health status
+   - Includes provider ID, username, tier, and latency metrics
+   - Sorted by tier and latency
+
+2. **GET /api/health/providers/filter**
+   - Query Parameters:
+     - model_name (required): Name of the model to filter by
+     - tier (optional): Filter by specific tier
+     - max_cost (required): Maximum cost per token
+   - Returns providers with 'green' or 'orange' status
+   - Includes pricing and performance metrics
+   - Sorted by tier and average TPS
+
+3. **GET /api/health/provider/:provider_id**
+   - Returns detailed health information for a specific provider
+   - Includes current health status, tier, availability, and latest metrics
+
+4. **GET /api/health/providers/user**
+   - Query Parameters:
+     - user_id (required): User ID to filter by
+     - model_name (optional): Filter by specific model
+   - Returns all non-red status providers belonging to the user
+   - Includes model pricing and performance metrics if model filter applied
+   - Excludes paused or unavailable providers
+   - Sorted by tier and average TPS
+
+5. **POST /api/health/providers/update-tiers**
+   - Internal endpoint (requires INTERNAL_API_KEY)
+   - Updates provider tiers based on 30-day health history
+   - Returns count of providers updated
+
+6. **POST /api/health/providers/check-stale**
+   - Internal endpoint (requires INTERNAL_API_KEY)
+   - Marks providers as unhealthy if no recent health checks
+   - Returns count of providers marked as stale
 
 We will need some Cloud cron thing to run the check for stale providers and update tiers from externally.
 
@@ -668,12 +724,44 @@ Providers
 
 The platform implements a flexible user management system where users can be associated with either consumers or providers:
 
+```mermaid
+graph TD
+    User[User<br>- id: UUID<br>- username: string<br>- created_at: timestamp<br>- updated_at: timestamp]
+
+    subgraph Consumer["Consumer Branch"]
+        Consumer_Entity[Consumer<br>- id: UUID<br>- user_id: UUID<br>- name: string<br>- max_input_price_tokens: decimal<br>- max_output_price_tokens: decimal]
+        Consumer_APIKey[API Key<br>- id: UUID<br>- consumer_id: UUID<br>- api_key: string<br>- is_active: boolean]
+        Consumer_Models[Consumer Models<br>- id: UUID<br>- consumer_id: UUID<br>- model_name: string<br>- max_input_price_tokens: decimal<br>- max_output_price_tokens: decimal]
+    end
+
+    subgraph Provider["Provider Branch"]
+        Provider_Entity[Provider<br>- id: UUID<br>- user_id: UUID<br>- name: string<br>- api_url: string<br>- health_status: string<br>- tier: int]
+        Provider_APIKey[API Key<br>- id: UUID<br>- provider_id: UUID<br>- api_key: string<br>- is_active: boolean]
+        Provider_Models[Provider Models<br>- id: UUID<br>- provider_id: UUID<br>- model_name: string<br>- input_price_tokens: decimal<br>- output_price_tokens: decimal<br>- average_tps: decimal]
+    end
+
+    User --> Consumer_Entity
+    User --> Provider_Entity
+    
+    Consumer_Entity --> Consumer_APIKey
+    Consumer_Entity --> Consumer_Models
+    
+    Provider_Entity --> Provider_APIKey
+    Provider_Entity --> Provider_Models
+
+    classDef entity fill:#f9f,stroke:#333,stroke-width:2px,color:#000;
+    classDef component fill:#bbf,stroke:#333,stroke-width:2px,color:#000;
+    
+    class User entity;
+    class Consumer_Entity,Provider_Entity entity;
+    class Consumer_APIKey,Provider_APIKey,Consumer_Models,Provider_Models component;
+```
+
 ## User Types and Relationships
 
 - **Users**: Base entity containing authentication information
   - Unique ID (UUID)
   - Username
-  - Type (consumer/provider)
   - Created/Updated timestamps
   - Authentication details
 
@@ -689,3 +777,32 @@ The platform implements a flexible user management system where users can be ass
   - Health status and tier information
   - Model configurations and pricing
   - Earnings and performance metrics
+
+## Creating Users
+
+Users can be created as either consumers or providers through the `/api/auth/users` endpoint. The type of user is determined by the presence of an `api_url` in the request:
+
+### Creating a Consumer
+```json
+POST /api/auth/users
+{
+    "username": "consumer_user",
+    "name": "Consumer Name",
+    "balance": 1000
+}
+```
+
+### Creating a Provider
+```json
+POST /api/auth/users
+{
+    "username": "provider_user",
+    "name": "Provider Name",
+    "balance": 1000,
+    "api_url": "http://provider-endpoint:8080"
+}
+```
+
+The presence of the `api_url` field determines whether the user is created as a provider or consumer. After user creation:
+- Consumers can set their price constraints and create API keys
+- Providers can register models, set pricing, and manage their health status

@@ -78,14 +78,14 @@ type PaymentMessage struct {
 
 // HoldDepositRequest represents a request to place a hold on a balance
 type HoldDepositRequest struct {
-	ConsumerID uuid.UUID `json:"consumer_id"`
-	Amount     float64   `json:"amount"`
+	UserID uuid.UUID `json:"user_id"`
+	Amount float64   `json:"amount"`
 }
 
 // ReleaseHoldRequest represents a request to release a hold on a balance
 type ReleaseHoldRequest struct {
-	ConsumerID uuid.UUID `json:"consumer_id"`
-	Amount     float64   `json:"amount"`
+	UserID uuid.UUID `json:"user_id"`
+	Amount float64   `json:"amount"`
 }
 
 // ValidateAPIKeyRequest represents a request to validate an API key
