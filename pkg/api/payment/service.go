@@ -139,152 +139,141 @@ func (s *Service) checkForPricingCheating(ctx context.Context, tx *sql.Tx, msg *
 
 // processPayment handles the payment processing logic
 func (s *Service) processPayment(msg *PaymentMessage) error {
-	// Start a transaction
-	var feePercentage float64
-	var isCheating bool
-
+	// Start a transaction for the entire payment process
 	err := s.db.ExecuteTx(context.Background(), func(tx *sql.Tx) error {
-		var err error
-		feePercentage, err = s.getFeePercentage(context.Background(), tx)
-		if err != nil {
-			return fmt.Errorf("failed to get fee percentage: %w", err)
-		}
-
-		// Check for pricing cheating
-		isCheating, _, err = s.checkForPricingCheating(context.Background(), tx, msg)
+		// Check for pricing cheating first
+		isCheating, _, err := s.checkForPricingCheating(context.Background(), tx, msg)
 		if err != nil {
 			return fmt.Errorf("failed to check for pricing cheating: %w", err)
 		}
 
+		// Get fee percentage
+		feePercentage, err := s.getFeePercentage(context.Background(), tx)
+		if err != nil {
+			return fmt.Errorf("failed to get fee percentage: %w", err)
+		}
+
+		// Calculate tokens per second
+		tokensPerSecond := float64(msg.TotalOutputTokens) / (float64(msg.Latency) / 1000.0)
+
+		// Get user IDs for both consumer and provider
+		var consumerUserID, providerUserID uuid.UUID
+		err = tx.QueryRowContext(context.Background(),
+			`SELECT user_id FROM consumers WHERE id = $1`,
+			msg.ConsumerID,
+		).Scan(&consumerUserID)
+		if err != nil {
+			return fmt.Errorf("failed to get consumer user_id: %w", err)
+		}
+
+		err = tx.QueryRowContext(context.Background(),
+			`SELECT user_id FROM providers WHERE id = $1`,
+			msg.ProviderID,
+		).Scan(&providerUserID)
+		if err != nil {
+			return fmt.Errorf("failed to get provider user_id: %w", err)
+		}
+
+		var serviceFee, providerEarnings, totalCost float64
+
+		if isCheating {
+			s.logger.Warn("Provider %s attempted to change pricing during transaction %s - applying penalty", msg.ProviderID, msg.HMAC)
+			// In case of cheating, set $1 service fee and no provider earnings
+			serviceFee = 1.0
+			providerEarnings = 0
+			totalCost = 0 // Consumer is not charged
+
+		} else if consumerUserID == providerUserID {
+			// If same user, no fees or costs
+			serviceFee = 0
+			providerEarnings = 0
+			totalCost = 0
+			s.logger.Info("Consumer and provider belong to same user - no fees or costs applied")
+		} else {
+			// Calculate costs using prices from the message (per million tokens)
+			inputCost := float64(msg.TotalInputTokens) * (msg.InputPriceTokens / 1_000_000.0)
+			outputCost := float64(msg.TotalOutputTokens) * (msg.OutputPriceTokens / 1_000_000.0)
+			totalCost = inputCost + outputCost
+			serviceFee = totalCost * feePercentage
+			providerEarnings = totalCost - serviceFee
+
+			// Process the actual payments only for non-cheating, different user case
+			if err := s.processConsumerDebitTx(tx, msg.ConsumerID, totalCost); err != nil {
+				return fmt.Errorf("failed to process consumer debit: %w", err)
+			}
+
+			if err := s.processProviderCreditTx(tx, msg.ProviderID, providerEarnings); err != nil {
+				return fmt.Errorf("failed to process provider credit: %w", err)
+			}
+		}
+
+		// Update transaction with payment details
+		query := `
+			UPDATE transactions 
+			SET tokens_per_second = $1,
+				consumer_cost = $2,
+				provider_earnings = $3,
+				service_fee = $4,
+				status = CASE WHEN $5 THEN 'cheating_detected' ELSE 'completed' END
+			WHERE hmac = $6
+		`
+
+		if _, err := tx.Exec(
+			query,
+			tokensPerSecond,
+			totalCost,
+			providerEarnings,
+			serviceFee,
+			isCheating,
+			msg.HMAC,
+		); err != nil {
+			return fmt.Errorf("failed to update transaction: %w", err)
+		}
+
+		// Update the provider model's average TPS and transaction count
+		if !isCheating {
+			// Get current values
+			var currentAvgTPS float64
+			var currentCount int
+			err := tx.QueryRow(`
+				SELECT average_tps, transaction_count 
+				FROM provider_models 
+				WHERE provider_id = $1 AND model_name = $2`,
+				msg.ProviderID, msg.ModelName,
+			).Scan(&currentAvgTPS, &currentCount)
+			if err != nil {
+				return fmt.Errorf("failed to get current TPS stats: %w", err)
+			}
+
+			// Calculate new average using the running average formula
+			newCount := currentCount + 1
+			newAvgTPS := ((currentAvgTPS * float64(currentCount)) + tokensPerSecond) / float64(newCount)
+
+			// Update the provider model
+			_, err = tx.Exec(`
+				UPDATE provider_models 
+				SET average_tps = $1, 
+					transaction_count = $2,
+					updated_at = NOW()
+				WHERE provider_id = $3 AND model_name = $4`,
+				newAvgTPS, newCount, msg.ProviderID, msg.ModelName,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to update provider model TPS stats: %w", err)
+			}
+		}
+
 		return nil
 	})
-	if err != nil {
-		return err
-	}
 
-	// Calculate tokens per second
-	tokensPerSecond := float64(msg.TotalOutputTokens) / (float64(msg.Latency) / 1000.0)
-
-	// Get user IDs for both consumer and provider
-	var consumerUserID, providerUserID uuid.UUID
-	err = s.db.QueryRowContext(context.Background(),
-		`SELECT user_id FROM consumers WHERE id = $1`,
-		msg.ConsumerID,
-	).Scan(&consumerUserID)
-	if err != nil {
-		return fmt.Errorf("failed to get consumer user_id: %w", err)
-	}
-
-	err = s.db.QueryRowContext(context.Background(),
-		`SELECT user_id FROM providers WHERE id = $1`,
-		msg.ProviderID,
-	).Scan(&providerUserID)
-	if err != nil {
-		return fmt.Errorf("failed to get provider user_id: %w", err)
-	}
-
-	var serviceFee, providerEarnings, totalCost float64
-
-	if isCheating {
-		s.logger.Warn("Provider %s attempted to change pricing during transaction %s - applying penalty", msg.ProviderID, msg.HMAC)
-		// In case of cheating, charge $1 service fee and no provider earnings
-		serviceFee = 1.0
-		providerEarnings = 0
-		totalCost = serviceFee
-	} else if consumerUserID == providerUserID {
-		// If same user, no fees or costs
-		serviceFee = 0
-		providerEarnings = 0
-		totalCost = 0
-		s.logger.Info("Consumer and provider belong to same user - no fees or costs applied")
-	} else {
-		// Calculate costs using prices from the message (per million tokens)
-		inputCost := float64(msg.TotalInputTokens) * (msg.InputPriceTokens / 1_000_000.0)
-		outputCost := float64(msg.TotalOutputTokens) * (msg.OutputPriceTokens / 1_000_000.0)
-		totalCost = inputCost + outputCost
-		serviceFee = totalCost * feePercentage
-		providerEarnings = totalCost - serviceFee
-	}
-
-	// Update the provider model's average TPS and transaction count
-	err = s.db.ExecuteTx(context.Background(), func(tx *sql.Tx) error {
-		// Get current values
-		var currentAvgTPS float64
-		var currentCount int
-		err := tx.QueryRow(`
-			SELECT average_tps, transaction_count 
-			FROM provider_models 
-			WHERE provider_id = $1 AND model_name = $2`,
-			msg.ProviderID, msg.ModelName,
-		).Scan(&currentAvgTPS, &currentCount)
-		if err != nil {
-			return fmt.Errorf("failed to get current TPS stats: %w", err)
-		}
-
-		// Calculate new average using the running average formula
-		newCount := currentCount + 1
-		newAvgTPS := ((currentAvgTPS * float64(currentCount)) + tokensPerSecond) / float64(newCount)
-
-		// Update the provider model
-		_, err = tx.Exec(`
-			UPDATE provider_models 
-			SET average_tps = $1, 
-				transaction_count = $2,
-				updated_at = NOW()
-			WHERE provider_id = $3 AND model_name = $4`,
-			newAvgTPS, newCount, msg.ProviderID, msg.ModelName,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to update provider model TPS stats: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to update provider model stats: %w", err)
-	}
-
-	// Update transaction with payment details
-	query := `
-		UPDATE transactions 
-		SET tokens_per_second = $1,
-			consumer_cost = $2,
-			provider_earnings = $3,
-			service_fee = $4,
-			status = CASE WHEN $5 THEN 'cheating_detected' ELSE 'completed' END
-		WHERE hmac = $6
-	`
-
-	if _, err := s.db.Exec(
-		query,
-		tokensPerSecond,
-		totalCost,
-		providerEarnings,
-		serviceFee,
-		isCheating,
-		msg.HMAC,
-	); err != nil {
-		return fmt.Errorf("failed to update transaction: %w", err)
-	}
-
-	// Only process actual payments if not a cheating case
-	if !isCheating && consumerUserID != providerUserID {
-		if err := s.processConsumerDebit(msg.ConsumerID, totalCost); err != nil {
-			return fmt.Errorf("failed to process consumer debit: %w", err)
-		}
-
-		if err := s.processProviderCredit(msg.ProviderID, providerEarnings); err != nil {
-			return fmt.Errorf("failed to process provider credit: %w", err)
-		}
-	}
-
-	return nil
+	return err
 }
 
-// processConsumerDebit handles the debiting of funds from the consumer's balance
-func (s *Service) processConsumerDebit(consumerID uuid.UUID, amount float64) error {
+// processConsumerDebitTx handles the debiting of funds from the consumer's balance within a transaction
+func (s *Service) processConsumerDebitTx(tx *sql.Tx, consumerID uuid.UUID, amount float64) error {
 	// First get the user_id for this consumer
 	var userID uuid.UUID
-	err := s.db.QueryRowContext(context.Background(),
+	err := tx.QueryRowContext(context.Background(),
 		`SELECT user_id FROM consumers WHERE id = $1`,
 		consumerID,
 	).Scan(&userID)
@@ -293,7 +282,7 @@ func (s *Service) processConsumerDebit(consumerID uuid.UUID, amount float64) err
 	}
 
 	// Now update the user's balance
-	_, err = s.db.Exec(
+	_, err = tx.Exec(
 		`UPDATE balances 
 		SET available_amount = available_amount - $1,
 			updated_at = NOW()
@@ -304,11 +293,11 @@ func (s *Service) processConsumerDebit(consumerID uuid.UUID, amount float64) err
 	return err
 }
 
-// processProviderCredit handles the crediting of funds to the provider's balance
-func (s *Service) processProviderCredit(providerID uuid.UUID, amount float64) error {
+// processProviderCreditTx handles the crediting of funds to the provider's balance within a transaction
+func (s *Service) processProviderCreditTx(tx *sql.Tx, providerID uuid.UUID, amount float64) error {
 	// First get the user_id for this provider
 	var userID uuid.UUID
-	err := s.db.QueryRowContext(context.Background(),
+	err := tx.QueryRowContext(context.Background(),
 		`SELECT user_id FROM providers WHERE id = $1`,
 		providerID,
 	).Scan(&userID)
@@ -317,7 +306,7 @@ func (s *Service) processProviderCredit(providerID uuid.UUID, amount float64) er
 	}
 
 	// Now update the user's balance
-	_, err = s.db.Exec(
+	_, err = tx.Exec(
 		`UPDATE balances 
 		SET available_amount = available_amount + $1,
 			updated_at = NOW()

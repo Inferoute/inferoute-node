@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     consumer_cost DECIMAL(18,8),
     provider_earnings DECIMAL(18,8),
     service_fee DECIMAL(18,8),
-    status STRING NOT NULL CHECK (status IN ('pending', 'payment', 'completed', 'failed')),
+    status STRING NOT NULL CHECK (status IN ('pending', 'payment', 'completed', 'failed', 'cheating_detected')),
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
     INDEX (consumer_id),

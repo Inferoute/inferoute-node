@@ -47,7 +47,7 @@ A: The platform uses a multi-step process:
 6. The transaction record is updated with the final details
 
 ### Q: How do we prevent from updating their costs mid transaction.
-A: !!!!
+A: 
 
 
 ### Q: How do we prevent a consumer from double spending.
@@ -90,6 +90,23 @@ A: Provider health is monitored by the Provider Health Service, which:
 3. Updates the provider's health status in the database
 4. The orchestrator will automatically adapt to these changes in subsequent requests
 
+### Q: How does the platform handle stale providers?
+A: The platform has a robust stale provider detection system:
+
+
+**Manual Trigger:**
+- Can be triggered via API endpoint `/api/health/providers/check-stale`
+- Marks providers as unavailable if they haven't sent a health check in the last 5 minutes
+- Only affects providers that are currently marked as available and not paused
+- Updates the `is_available` flag to `false` for stale providers
+- Returns the number of providers that were marked as unavailable
+- Protected by internal API key for security
+
+**Impact:**
+- Stale providers are automatically removed from the provider selection pool
+- Helps maintain service reliability by quickly detecting offline providers
+- Prevents requests from being routed to potentially unresponsive providers
+
 ### Q: How does the platform ensure fair provider selection?
 A: The platform uses a scoring system that balances price and performance. This ensures that:
 1. Users get the best value for their money
@@ -104,9 +121,64 @@ A: The HMAC (Hash-based Message Authentication Code) serves several purposes:
 4. It prevents unauthorized modifications of the request
 
 ### Q: How does the platform handle provider tiers?
-A: Providers are assigned to tiers (1-3) based on their quality and reliability:
-- Tier 1: Premium providers with highest quality
-- Tier 2: Standard providers with good quality
-- Tier 3: Basic providers or new providers
+A: Providers are assigned to tiers (1-3) based on their health check history over the past 30 days:
 
-The tier affects provider selection, with higher-tier providers generally receiving preference when other factors are equal. 
+**Tier Calculation:**
+- Tier 1 (Premium): ≥99% green health checks
+- Tier 2 (Standard): ≥95% but <99% green health checks
+- Tier 3 (Basic): <95% green health checks or new providers
+
+**Update Process:**
+- Tiers are not automatically updated but the API needs to be called.
+- Can be manually triggered via API endpoint `/api/health/providers/update-tiers`
+- Only providers with at least 10 health checks in the past 30 days are evaluated
+- Tier changes are logged with health percentage and check counts
+
+**Impact on Business:**
+- Higher tiers can generally charge premium rates for their services
+- Tier affects provider selection priority in the orchestrator
+- Pricing examples by tier:
+  - Tier 1: Premium pricing (e.g., deepseek-r1:8b at 0.15/0.3)
+  - Tier 2: Mid-range pricing (e.g., deepseek-r1:8b at 0.5/0.15)
+  - Tier 3: Lower pricing (e.g., basic models at 0.2/0.6)
+
+**Provider Selection:**
+- Higher tier providers are prioritized in selection
+- Within tiers, providers are ranked by:
+  - Average tokens per second (TPS)
+  - Price constraints
+  - Current health status
+  - Availability
+
+New providers start at Tier 3 and can move up by maintaining consistent uptime and performance.
+
+## Provider Pricing and Cheating Prevention
+
+### Q: How does the platform prevent providers from changing prices during a transaction?
+A: The platform implements a strict cheating detection system:
+1. When a transaction starts, its creation timestamp is recorded
+2. When the transaction completes, its completion timestamp is recorded
+3. The system checks if the provider's pricing was updated between these timestamps
+4. If a price update is detected during this window, it's considered cheating
+
+### Q: What happens if a provider is caught changing prices during a transaction?
+A: The platform takes several actions:
+1. The consumer is not charged for the request
+2. The provider receives no earnings
+3. The platform charges a $1 penalty fee to the provider.
+4. The incident is recorded in the `provider_cheating_incidents` table for investigation
+5. The transaction status is marked as 'cheating_detected'
+
+### Q: How can I check if a provider has attempted to cheat?
+A: You can query the `provider_cheating_incidents` table, which records:
+- The provider and model IDs
+- Transaction details (HMAC, timestamps)
+- The pricing that was attempted to be changed
+- The total tokens involved in the transaction
+
+### Q: Why is changing prices during a transaction considered cheating?
+A: Price changes during transactions are prohibited because:
+1. The consumer agreed to the original price when making the request
+2. Mid-transaction price changes could lead to unexpected costs
+3. It maintains pricing transparency and fairness
+4. It prevents providers from exploiting price differences during processing 
