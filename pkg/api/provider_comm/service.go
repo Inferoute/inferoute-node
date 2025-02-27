@@ -32,8 +32,44 @@ func NewService(db *db.DB, logger *common.Logger) *Service {
 
 // SendRequest sends a request to a provider and waits for the response
 func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (*SendRequestResponse, error) {
+	totalStartTime := time.Now()
+
 	// Send the request_data directly as it's already in the correct format
-	requestBody, err := json.Marshal(req.RequestData)
+	marshalStartTime := time.Now()
+	// Instead of marshaling req.RequestData directly, we need to ensure all fields are preserved
+	// Create a copy of the request data to ensure we don't modify the original
+	requestData := make(map[string]interface{})
+	for k, v := range req.RequestData {
+		requestData[k] = v
+	}
+
+	// Log the request data to verify all fields are included
+	s.logger.Info("Original request data: %+v", requestData)
+
+	// Check if max_tokens exists in the request data
+	if _, exists := requestData["max_tokens"]; !exists {
+		// If not in request data, try to get from context
+		if maxTokens, ok := ctx.Value("max_tokens").(int); ok && maxTokens > 0 {
+			requestData["max_tokens"] = maxTokens
+			s.logger.Info("Added max_tokens=%d from context", maxTokens)
+		}
+	} else {
+		s.logger.Info("max_tokens already exists in request data: %v", requestData["max_tokens"])
+	}
+
+	// Check if temperature exists in the request data
+	if _, exists := requestData["temperature"]; !exists {
+		// If not in request data, try to get from context
+		if temperature, ok := ctx.Value("temperature").(float64); ok {
+			requestData["temperature"] = temperature
+			s.logger.Info("Added temperature=%f from context", temperature)
+		}
+	} else {
+		s.logger.Info("temperature already exists in request data: %v", requestData["temperature"])
+	}
+
+	requestBody, err := json.Marshal(requestData)
+	marshalTime := time.Since(marshalStartTime).Milliseconds()
 	if err != nil {
 		return nil, common.ErrInternalServer(fmt.Errorf("error marshaling request: %w", err))
 	}
@@ -54,12 +90,17 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (*Sen
 	s.logger.Info("  URL: %s", req.ProviderURL)
 	s.logger.Info("  Headers: %v", httpReq.Header)
 	s.logger.Info("  Body: %s", string(requestBody))
+	s.logger.Info("  Request preparation took: %dms", time.Since(totalStartTime).Milliseconds())
 
 	startTime := time.Now()
 	resp, err := s.client.Do(httpReq)
-	latency := time.Since(startTime).Milliseconds()
+	networkTime := time.Since(startTime).Milliseconds()
+	latency := time.Since(totalStartTime).Milliseconds()
+
+	s.logger.Info("  Network time (just HTTP request): %dms", networkTime)
 
 	if err != nil {
+		s.logger.Error("Provider request failed after %dms: %v", networkTime, err)
 		return &SendRequestResponse{
 			Success: false,
 			Error:   fmt.Sprintf("error sending request to provider: %v", err),
@@ -69,15 +110,18 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (*Sen
 	defer resp.Body.Close()
 
 	// Parse the response
+	decodeStartTime := time.Now()
 	var responseData map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&responseData); err != nil {
-		s.logger.Error("Failed to parse provider response: %v", err)
+		decodeTime := time.Since(decodeStartTime).Milliseconds()
+		s.logger.Error("Failed to parse provider response after %dms: %v", decodeTime, err)
 		return &SendRequestResponse{
 			Success: false,
 			Error:   fmt.Sprintf("error parsing provider response: %v", err),
 			Latency: latency,
 		}, nil
 	}
+	decodeTime := time.Since(decodeStartTime).Milliseconds()
 
 	response := &SendRequestResponse{
 		Success:      resp.StatusCode == http.StatusOK,
@@ -90,6 +134,10 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (*Sen
 	s.logger.Info("  Status Code: %d", resp.StatusCode)
 	s.logger.Info("  Success: %v", response.Success)
 	s.logger.Info("  Latency: %dms", response.Latency)
+	s.logger.Info("  Network Time: %dms", networkTime)
+	s.logger.Info("  Response Decode Time: %dms", decodeTime)
+	s.logger.Info("  Marshal Request Time: %dms", marshalTime)
+	s.logger.Info("  Total Provider Comm Time: %dms", time.Since(totalStartTime).Milliseconds())
 	s.logger.Info("  Response Data: %+v", response.ResponseData)
 
 	return response, nil

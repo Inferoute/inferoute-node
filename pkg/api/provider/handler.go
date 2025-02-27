@@ -204,10 +204,27 @@ func (h *Handler) PushHealth(c echo.Context) error {
 
 	apiKey := strings.TrimSpace(parts[1])
 
+	// Get provider ID from auth context
+	providerID, ok := c.Get("provider_id").(uuid.UUID)
+	if !ok {
+		return common.ErrUnauthorized(fmt.Errorf("invalid or missing provider ID"))
+	}
+
 	// Create message for RabbitMQ
 	message := ProviderHealthMessage{
-		APIKey: apiKey,
-		Models: req.Data,
+		APIKey:       apiKey,
+		Models:       req.Data,
+		GPU:          req.GPU,
+		Ngrok:        req.Ngrok,
+		ProviderType: req.ProviderType,
+	}
+
+	// Update provider information if GPU or Ngrok data is provided
+	if req.GPU != nil || req.Ngrok != nil || req.ProviderType != "" {
+		if err := h.service.UpdateProviderInfo(c.Request().Context(), providerID, req); err != nil {
+			h.logger.Error("Failed to update provider info: %v", err)
+			// Continue with health update even if provider info update fails
+		}
 	}
 
 	// Publish to RabbitMQ

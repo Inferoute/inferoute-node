@@ -8,10 +8,20 @@ import (
 
 // OpenAIRequest represents the incoming request from the consumer
 type OpenAIRequest struct {
-	Model    string    `json:"model" validate:"required"`
-	Messages []Message `json:"messages,omitempty"`
-	Prompt   string    `json:"prompt,omitempty"`
-	Sort     string    `json:"sort,omitempty" validate:"omitempty,oneof=cost throughput"`
+	Model            string             `json:"model" validate:"required"`
+	Messages         []Message          `json:"messages,omitempty"`
+	Prompt           string             `json:"prompt,omitempty"`
+	Sort             string             `json:"sort,omitempty" validate:"omitempty,oneof=cost throughput"`
+	MaxTokens        int                `json:"max_tokens,omitempty"`
+	Temperature      float64            `json:"temperature,omitempty"`
+	TopP             float64            `json:"top_p,omitempty"`
+	N                int                `json:"n,omitempty"`
+	Stream           bool               `json:"stream,omitempty"`
+	Stop             []string           `json:"stop,omitempty"`
+	PresencePenalty  float64            `json:"presence_penalty,omitempty"`
+	FrequencyPenalty float64            `json:"frequency_penalty,omitempty"`
+	LogitBias        map[string]float64 `json:"logit_bias,omitempty"`
+	User             string             `json:"user,omitempty"`
 }
 
 // Message represents a chat message - only used for basic validation

@@ -87,16 +87,41 @@ type ProviderHealthPushModel struct {
 	OwnedBy string `json:"owned_by"`
 }
 
+// GPUInfo represents GPU information in the health push data
+type GPUInfo struct {
+	ProductName   string `json:"product_name"`
+	DriverVersion string `json:"driver_version"`
+	CudaVersion   string `json:"cuda_version"`
+	GPUCount      int    `json:"gpu_count"`
+	UUID          string `json:"uuid"`
+	Utilization   int    `json:"utilization"`
+	MemoryTotal   int    `json:"memory_total"`
+	MemoryUsed    int    `json:"memory_used"`
+	MemoryFree    int    `json:"memory_free"`
+	IsBusy        bool   `json:"is_busy"`
+}
+
+// NgrokInfo represents ngrok tunnel information in the health push data
+type NgrokInfo struct {
+	URL string `json:"url"`
+}
+
 // ProviderHealthPushRequest represents the request body for health push
 type ProviderHealthPushRequest struct {
-	Object string                    `json:"object" validate:"required,eq=list"`
-	Data   []ProviderHealthPushModel `json:"data" validate:"required,dive"`
+	Object       string                    `json:"object" validate:"required,eq=list"`
+	Data         []ProviderHealthPushModel `json:"data" validate:"required,dive"`
+	GPU          *GPUInfo                  `json:"gpu,omitempty"`
+	Ngrok        *NgrokInfo                `json:"ngrok,omitempty"`
+	ProviderType string                    `json:"provider_type,omitempty"`
 }
 
 // ProviderHealthMessage represents the message that will be sent to RabbitMQ
 type ProviderHealthMessage struct {
-	APIKey string                    `json:"api_key"`
-	Models []ProviderHealthPushModel `json:"models"`
+	APIKey       string                    `json:"api_key"`
+	Models       []ProviderHealthPushModel `json:"models"`
+	GPU          *GPUInfo                  `json:"gpu,omitempty"`
+	Ngrok        *NgrokInfo                `json:"ngrok,omitempty"`
+	ProviderType string                    `json:"provider_type,omitempty"`
 }
 
 // ValidateHMACRequest represents a request to validate an HMAC

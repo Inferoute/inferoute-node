@@ -36,7 +36,21 @@ func NewService(db *db.DB, logger *common.Logger, rmq *rabbitmq.Client, internal
 
 // ProcessRequest handles the main orchestration flow
 func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req *OpenAIRequest) (interface{}, error) {
+	totalStartTime := time.Now()
+
+	// Add max_tokens and temperature to context if they exist in the request
+	if req.MaxTokens > 0 {
+		ctx = context.WithValue(ctx, "max_tokens", req.MaxTokens)
+		s.logger.Info("Added max_tokens=%d to context", req.MaxTokens)
+	}
+
+	if req.Temperature != 0 {
+		ctx = context.WithValue(ctx, "temperature", req.Temperature)
+		s.logger.Info("Added temperature=%f to context", req.Temperature)
+	}
+
 	// 1. Validate API key
+	authStartTime := time.Now()
 	authReq := map[string]interface{}{
 		"api_key": ctx.Value("api_key").(string),
 	}
@@ -49,6 +63,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 		"/api/auth/validate",
 		authReq,
 	)
+	s.logger.Info("Auth validation took: %dms", time.Since(authStartTime).Milliseconds())
 	if err != nil {
 		s.logger.Error("Failed to validate API key: %v", err)
 		return nil, fmt.Errorf("failed to validate API key: %w", err)
@@ -88,14 +103,18 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	}
 
 	// //1. Get user settings
+	userSettingsStartTime := time.Now()
 	userSettings, err := s.getUserSettings(ctx)
+	s.logger.Info("Getting user settings took: %dms", time.Since(userSettingsStartTime).Milliseconds())
 	if err != nil {
 		s.logger.Error("Failed to get user settings: %v", err)
 		return nil, fmt.Errorf("failed to get user settings: %w", err)
 	}
 
 	// 2. Get consumer settings (global and model-specific)
+	consumerSettingsStartTime := time.Now()
 	settings, err := s.getConsumerSettings(ctx, consumerID, req.Model)
+	s.logger.Info("Getting consumer settings took: %dms", time.Since(consumerSettingsStartTime).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get consumer settings: %w", err)
 	}
@@ -103,7 +122,9 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	var userProviders []ProviderInfo
 	if userSettings.DefaultToOwnModels {
 		// Only get user providers if DefaultToOwnModels is true
+		userProvidersStartTime := time.Now()
 		userProviders, err = s.getUserProviders(ctx, req.Model)
+		s.logger.Info("Getting user providers took: %dms", time.Since(userProvidersStartTime).Milliseconds())
 		if err != nil {
 			return nil, fmt.Errorf("failed to get user providers: %w", err)
 		}
@@ -111,7 +132,9 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	}
 
 	// 3.b Get healthy providers within price constraints
+	providersStartTime := time.Now()
 	providers, err := s.getHealthyProviders(ctx, req.Model, settings)
+	s.logger.Info("Getting healthy providers took: %dms", time.Since(providersStartTime).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get healthy providers: %w", err)
 	}
@@ -121,7 +144,9 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	}
 
 	// 4. Select best providers based on price and latency
+	selectProvidersStartTime := time.Now()
 	selectedProviders := s.selectBestProviders(providers, req.Sort)
+	s.logger.Info("Selecting best providers took: %dms", time.Since(selectProvidersStartTime).Milliseconds())
 	if len(selectedProviders) == 0 {
 		return nil, fmt.Errorf("no suitable providers found for model %s", req.Model)
 	}
@@ -152,41 +177,65 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	selectedProvider := selectedProviders[0]
 
 	// 5. Generate HMAC
+	hmacStartTime := time.Now()
 	hmac, err := s.generateHMAC(ctx, consumerID, req)
+	s.logger.Info("Generating HMAC took: %dms", time.Since(hmacStartTime).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate HMAC: %w", err)
 	}
 
 	// 6. Create transaction record
+	txStartTime := time.Now()
 	tx, err := s.createTransaction(ctx, consumerID, selectedProvider, req.Model, hmac)
+	s.logger.Info("Creating transaction took: %dms", time.Since(txStartTime).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transaction: %w", err)
 	}
 
 	// 7. Place holding deposit
+	holdingStartTime := time.Now()
 	if err := s.placeHoldingDeposit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to place holding deposit: %w", err)
 	}
+	s.logger.Info("Placing holding deposit took: %dms", time.Since(holdingStartTime).Milliseconds())
 
 	// 8. Send request to provider
 	startTime := time.Now()
 	response, successfulProvider, err := s.sendRequestToProvider(ctx, selectedProviders, req, hmac)
+	providerRequestTime := time.Since(startTime).Milliseconds()
+	s.logger.Info("Provider request took: %dms", providerRequestTime)
 	if err != nil {
 		// Release holding deposit on error
 		_ = s.releaseHoldingDeposit(ctx)
+
+		// Update transaction status to 'canceled' since all providers failed
+		if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
+			s.logger.Error("Failed to cancel transaction: %v", cancelErr)
+		} else {
+			s.logger.Info("Transaction %s canceled: all providers failed", tx.ID)
+		}
+
 		return nil, fmt.Errorf("failed to send request to provider: %w", err)
 	}
 	latency := time.Since(startTime).Milliseconds()
 
 	// 9. Release holding deposit
+	releaseStartTime := time.Now()
 	if err := s.releaseHoldingDeposit(ctx); err != nil {
 		s.logger.Error("Failed to release holding deposit: %v", err)
 	}
+	s.logger.Info("Releasing holding deposit took: %dms", time.Since(releaseStartTime).Milliseconds())
 
 	// 10. Update transaction and publish payment message
+	finalizeStartTime := time.Now()
 	if err := s.finalizeTransaction(ctx, tx, response, latency, successfulProvider); err != nil {
 		s.logger.Error("Failed to finalize transaction: %v", err)
 	}
+	s.logger.Info("Finalizing transaction took: %dms", time.Since(finalizeStartTime).Milliseconds())
+
+	totalTime := time.Since(totalStartTime).Milliseconds()
+	s.logger.Info("Total orchestration time: %dms (Provider request: %dms, Overhead: %dms)",
+		totalTime, providerRequestTime, totalTime-providerRequestTime)
 
 	return response, nil
 }
@@ -586,21 +635,41 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 	}
 
 	for i, provider := range providers {
+		providerStartTime := time.Now()
 		s.logger.Info("Attempting request with provider %d/%d (ID: %s)", i+1, len(providers), provider.ProviderID)
 
 		// Construct full provider URL with the original path
 		providerFullURL := fmt.Sprintf("%s%s", provider.URL, originalPath)
 
 		// Prepare request body
+		prepStartTime := time.Now()
+
+		// Convert the OpenAIRequest to a map to ensure all fields are included
+		reqMap := make(map[string]interface{})
+		reqBytes, err := json.Marshal(req)
+		if err != nil {
+			s.logger.Error("Failed to marshal request: %v", err)
+			continue
+		}
+		if err := json.Unmarshal(reqBytes, &reqMap); err != nil {
+			s.logger.Error("Failed to unmarshal request to map: %v", err)
+			continue
+		}
+
+		// Log the request map to verify all fields are included
+		s.logger.Info("Request map: %+v", reqMap)
+
 		providerReq := map[string]interface{}{
 			"provider_id":  provider.ProviderID,
 			"hmac":         hmac,
 			"provider_url": providerFullURL,
 			"model_name":   req.Model,
-			"request_data": req,
+			"request_data": reqMap,
 		}
+		s.logger.Info("Request preparation took: %dms", time.Since(prepStartTime).Milliseconds())
 
 		// Send request to provider communication service
+		commStartTime := time.Now()
 		response, err := common.MakeInternalRequest(
 			ctx,
 			"POST",
@@ -608,10 +677,17 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 			"/api/provider-comms/send_requests",
 			providerReq,
 		)
+		commTime := time.Since(commStartTime).Milliseconds()
+		s.logger.Info("Provider communication service call took: %dms", commTime)
 
 		if err != nil {
 			lastErr = err
-			s.logger.Error("Provider %s failed: %v", provider.ProviderID, err)
+			s.logger.Error("Provider %s failed after %dms: %v", provider.ProviderID, commTime, err)
+
+			// Log that we're trying the next provider if there are more
+			if i < len(providers)-1 {
+				s.logger.Info("Trying next provider (%d/%d remaining)", len(providers)-i-1, len(providers))
+			}
 			continue // Try next provider
 		}
 
@@ -623,16 +699,24 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 				errMsg = errStr
 			}
 			lastErr = fmt.Errorf("provider request failed: %s", errMsg)
-			s.logger.Error("Provider %s request failed: %s", provider.ProviderID, errMsg)
+			s.logger.Error("Provider %s request failed after %dms: %s", provider.ProviderID, commTime, errMsg)
+
+			// Log that we're trying the next provider if there are more
+			if i < len(providers)-1 {
+				s.logger.Info("Trying next provider (%d/%d remaining)", len(providers)-i-1, len(providers))
+			}
 			continue // Try next provider
 		}
 
 		// If we get here, the request was successful
-		s.logger.Info("Request successful with provider %s", provider.ProviderID)
+		totalProviderTime := time.Since(providerStartTime).Milliseconds()
+		s.logger.Info("Request successful with provider %s (total time: %dms, comm time: %dms)",
+			provider.ProviderID, totalProviderTime, commTime)
 		return response, &provider, nil
 	}
 
 	// If we get here, all providers failed
+	s.logger.Error("All %d providers failed. Last error: %v", len(providers), lastErr)
 	return nil, nil, fmt.Errorf("all providers failed. Last error: %v", lastErr)
 }
 
@@ -724,6 +808,25 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 	}
 
 	s.logger.Info("Published payment message for transaction %s with successful provider %s", tx.ID, provider.ProviderID)
+	return nil
+}
+
+// cancelTransaction updates a transaction's status to 'canceled'
+func (s *Service) cancelTransaction(ctx context.Context, transactionID uuid.UUID) error {
+	query := `
+		UPDATE transactions 
+		SET status = 'canceled',
+		    updated_at = NOW()
+		WHERE id = $1
+		RETURNING id`
+
+	var id uuid.UUID
+	err := s.db.QueryRowContext(ctx, query, transactionID).Scan(&id)
+	if err != nil {
+		return fmt.Errorf("error canceling transaction: %w", err)
+	}
+
+	s.logger.Info("Transaction %s status updated to 'canceled'", id)
 	return nil
 }
 

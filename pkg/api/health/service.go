@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -65,19 +66,87 @@ func (s *Service) StartHealthCheckConsumer(ctx context.Context) error {
 func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMessage) error {
 	// Get provider ID from API key
 	var providerID uuid.UUID
+	var serviceType string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT p.id
+		`SELECT p.id, p.provider_type
 		FROM providers p
 		JOIN api_keys ak ON ak.provider_id = p.id
 		WHERE ak.api_key = $1 AND ak.is_active = true`,
 		msg.APIKey,
-	).Scan(&providerID)
+	).Scan(&providerID, &serviceType)
 	if err != nil {
 		return fmt.Errorf("error getting provider ID: %w", err)
 	}
 
 	return s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
-		// Get provider's models from database (all models, not just active ones)
+		// Update provider information if GPU or Ngrok data is provided
+		if msg.GPU != nil || msg.Ngrok != nil || msg.ProviderType != "" {
+			query := `
+				UPDATE providers 
+				SET 
+					api_url = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE api_url END,
+					product_name = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE product_name END,
+					driver_version = CASE WHEN $4::text IS NOT NULL THEN $4 ELSE driver_version END,
+					cuda_version = CASE WHEN $5::text IS NOT NULL THEN $5 ELSE cuda_version END,
+					gpu_count = CASE WHEN $6::int IS NOT NULL THEN $6 ELSE gpu_count END,
+					memory_total = CASE WHEN $7::int IS NOT NULL THEN $7 ELSE memory_total END,
+					memory_free = CASE WHEN $8::int IS NOT NULL THEN $8 ELSE memory_free END,
+					provider_type = CASE WHEN $9::text IS NOT NULL THEN $9 ELSE provider_type END,
+					updated_at = NOW()
+				WHERE id = $1
+			`
+
+			var ngrokURL *string
+			if msg.Ngrok != nil && msg.Ngrok.URL != "" {
+				ngrokURL = &msg.Ngrok.URL
+			}
+
+			var productName, driverVersion, cudaVersion *string
+			var gpuCount, memoryTotal, memoryFree *int
+			if msg.GPU != nil {
+				if msg.GPU.ProductName != "" {
+					productName = &msg.GPU.ProductName
+				}
+				if msg.GPU.DriverVersion != "" {
+					driverVersion = &msg.GPU.DriverVersion
+				}
+				if msg.GPU.CudaVersion != "" {
+					cudaVersion = &msg.GPU.CudaVersion
+				}
+				if msg.GPU.GPUCount > 0 {
+					gpuCount = &msg.GPU.GPUCount
+				}
+				if msg.GPU.MemoryTotal > 0 {
+					memoryTotal = &msg.GPU.MemoryTotal
+				}
+				if msg.GPU.MemoryFree > 0 {
+					memoryFree = &msg.GPU.MemoryFree
+				}
+			}
+
+			var providerType *string
+			if msg.ProviderType != "" {
+				providerType = &msg.ProviderType
+				serviceType = msg.ProviderType
+			}
+
+			_, err := tx.ExecContext(ctx, query,
+				providerID,
+				ngrokURL,
+				productName,
+				driverVersion,
+				cudaVersion,
+				gpuCount,
+				memoryTotal,
+				memoryFree,
+				providerType,
+			)
+			if err != nil {
+				return fmt.Errorf("error updating provider info: %w", err)
+			}
+		}
+
+		// Get provider's models from database
 		rows, err := tx.QueryContext(ctx,
 			`SELECT id, model_name 
 			FROM provider_models 
@@ -89,45 +158,103 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 		}
 		defer rows.Close()
 
-		dbModels := make(map[string]struct{})
+		// Map to store existing models in the database
+		dbModels := make(map[string]uuid.UUID)
 		for rows.Next() {
 			var id uuid.UUID
 			var modelName string
 			if err := rows.Scan(&id, &modelName); err != nil {
 				return fmt.Errorf("error scanning model: %w", err)
 			}
-			dbModels[modelName] = struct{}{}
+			dbModels[modelName] = id
 		}
 
-		// Check which models from health check exist in database
-		healthModels := make(map[string]struct{})
+		// Process models from health update
+		healthModels := make(map[string]ProviderHealthPushModel)
 		for _, model := range msg.Models {
-			healthModels[model.ID] = struct{}{}
-		}
+			// Process model name - remove ":latest" suffix if present
+			modelName := model.ID
+			if strings.HasSuffix(modelName, ":latest") {
+				modelName = strings.TrimSuffix(modelName, ":latest")
+			}
 
-		// Determine health status
-		var healthStatus HealthStatus
-		var matchCount int
-		if len(msg.Models) == 0 {
-			healthStatus = HealthStatusRed
-		} else {
-			for modelName := range dbModels {
-				if _, exists := healthModels[modelName]; exists {
-					matchCount++
+			healthModels[modelName] = model
+
+			// Check if model exists in database
+			if modelID, exists := dbModels[modelName]; exists {
+				// Update existing model
+				_, err := tx.ExecContext(ctx,
+					`UPDATE provider_models 
+					SET model_created = $1, 
+						model_owned_by = $2,
+						is_active = true,
+						updated_at = NOW()
+					WHERE id = $3`,
+					time.Unix(model.Created, 0),
+					model.OwnedBy,
+					modelID,
+				)
+				if err != nil {
+					s.logger.Error("Failed to update model metadata: %v", err)
+					// Continue processing even if this update fails
+				}
+
+				// Remove from dbModels map to track which models need to be deleted
+				delete(dbModels, modelName)
+			} else {
+				// Add new model to database with default pricing
+				_, err := tx.ExecContext(ctx,
+					`INSERT INTO provider_models (
+						id, provider_id, model_name, service_type,
+						input_price_tokens, output_price_tokens,
+						is_active, model_created, model_owned_by,
+						created_at, updated_at
+					) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())`,
+					uuid.New(),
+					providerID,
+					modelName,
+					serviceType,
+					0.0001, // Default input price
+					0.0001, // Default output price
+					true,
+					time.Unix(model.Created, 0),
+					model.OwnedBy,
+				)
+				if err != nil {
+					s.logger.Error("Failed to add new model: %v", err)
+					// Continue processing even if this update fails
+				} else {
+					s.logger.Info("Added new model: %s for provider %s", modelName, providerID)
 				}
 			}
+		}
 
-			if matchCount == len(dbModels) {
-				healthStatus = HealthStatusGreen
-			} else if matchCount > 0 {
-				healthStatus = HealthStatusOrange
+		// Delete models that weren't in the health update
+		for modelName, modelID := range dbModels {
+			_, err := tx.ExecContext(ctx,
+				`DELETE FROM provider_models WHERE id = $1`,
+				modelID,
+			)
+			if err != nil {
+				s.logger.Error("Failed to delete model %s: %v", modelName, err)
+				// Continue processing even if this deletion fails
 			} else {
-				healthStatus = HealthStatusRed
+				s.logger.Info("Deleted model: %s for provider %s", modelName, providerID)
 			}
 		}
 
-		s.logger.Info("Health check status: %s (matched %d out of %d models)",
-			healthStatus, matchCount, len(dbModels))
+		// Determine health status - simplified to just green or red
+		// Green = at least one model is presented
+		// Red = no models are presented
+		var healthStatus HealthStatus
+		if len(msg.Models) > 0 {
+			healthStatus = HealthStatusGreen
+		} else {
+			healthStatus = HealthStatusRed
+		}
+
+		s.logger.Info("Health check status: %s (provider has %d models)",
+			healthStatus, len(msg.Models))
 
 		// Update provider status
 		_, err = tx.ExecContext(ctx,
@@ -145,37 +272,28 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 			return fmt.Errorf("error updating provider status: %w", err)
 		}
 
-		// Record health history
+		// Record health history with GPU metrics if available
+		var gpuUtilization, memoryUsed, memoryTotal *int
+		if msg.GPU != nil {
+			gpuUtilization = &msg.GPU.Utilization
+			memoryUsed = &msg.GPU.MemoryUsed
+			memoryTotal = &msg.GPU.MemoryTotal
+		}
+
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO provider_health_history 
-			(provider_id, health_status, latency_ms, health_check_time)
-			VALUES ($1, $2, $3, NOW())`,
+			(id, provider_id, health_status, latency_ms, gpu_utilization, memory_used, memory_total, health_check_time)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+			uuid.New(),
 			providerID,
 			healthStatus,
-			0, // TODO: Add latency measurement
+			0, // latency_ms - we don't have this in the health check message
+			gpuUtilization,
+			memoryUsed,
+			memoryTotal,
 		)
 		if err != nil {
 			return fmt.Errorf("error recording health history: %w", err)
-		}
-
-		// Update model active status based on health check
-		for modelName := range dbModels {
-			isActive := false
-			if _, exists := healthModels[modelName]; exists {
-				isActive = true
-			}
-			_, err = tx.ExecContext(ctx,
-				`UPDATE provider_models 
-				SET is_active = $1,
-					updated_at = NOW()
-				WHERE provider_id = $2 AND model_name = $3`,
-				isActive,
-				providerID,
-				modelName,
-			)
-			if err != nil {
-				return fmt.Errorf("error updating model status: %w", err)
-			}
 		}
 
 		return nil
@@ -305,7 +423,7 @@ func (s *Service) GetHealthyNodes(ctx context.Context, req GetHealthyNodesReques
 		JOIN provider_models pm ON pm.provider_id = p.id
 		WHERE p.is_available = true
 			AND NOT p.paused
-			AND p.health_status != 'red'
+			AND p.health_status = 'green'
 			AND p.tier <= $1
 			AND pm.model_name = $2
 			AND pm.is_active = true

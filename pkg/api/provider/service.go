@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,6 +39,12 @@ func NewService(db *db.DB, logger *common.Logger, rmq *rabbitmq.Client) *Service
 func (s *Service) AddModel(ctx context.Context, providerID uuid.UUID, req AddModelRequest) (*ProviderModel, error) {
 	var model ProviderModel
 
+	// Process model name - remove ":latest" suffix if present
+	modelName := req.ModelName
+	if strings.HasSuffix(modelName, ":latest") {
+		modelName = strings.TrimSuffix(modelName, ":latest")
+	}
+
 	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
 		// Verify provider exists
 		var exists bool
@@ -59,7 +66,7 @@ func (s *Service) AddModel(ctx context.Context, providerID uuid.UUID, req AddMod
 		model = ProviderModel{
 			ID:                uuid.New(),
 			ProviderID:        providerID,
-			ModelName:         req.ModelName,
+			ModelName:         modelName,
 			ServiceType:       req.ServiceType,
 			InputPriceTokens:  req.InputPriceTokens,
 			OutputPriceTokens: req.OutputPriceTokens,
@@ -133,6 +140,12 @@ func (s *Service) ListModels(ctx context.Context, providerID uuid.UUID) (*ListMo
 
 // UpdateModel updates an existing model
 func (s *Service) UpdateModel(ctx context.Context, providerID, modelID uuid.UUID, req UpdateModelRequest) (*ProviderModel, error) {
+	// Process model name - remove ":latest" suffix if present
+	modelName := req.ModelName
+	if strings.HasSuffix(modelName, ":latest") {
+		modelName = strings.TrimSuffix(modelName, ":latest")
+	}
+
 	query := `
 		UPDATE provider_models 
 		SET model_name = $1, 
@@ -145,7 +158,7 @@ func (s *Service) UpdateModel(ctx context.Context, providerID, modelID uuid.UUID
 
 	model := &ProviderModel{}
 	err := s.db.QueryRowContext(ctx, query,
-		req.ModelName,
+		modelName,
 		req.ServiceType,
 		req.InputPriceTokens,
 		req.OutputPriceTokens,
@@ -246,10 +259,8 @@ func (s *Service) ValidateHMAC(ctx context.Context, providerID uuid.UUID, req Va
 		`SELECT id, model_name
 		FROM transactions 
 		WHERE hmac = $1 
-		AND provider_id = $2
 		AND status = 'pending'`,
 		req.HMAC,
-		providerID,
 	).Scan(&transactionID, &modelName)
 
 	if err != nil {
@@ -291,6 +302,74 @@ func (s *Service) UpdateAPIURL(ctx context.Context, providerID uuid.UUID, apiURL
 
 	if rowsAffected == 0 {
 		return common.ErrNotFound(fmt.Errorf("provider not found"))
+	}
+
+	return nil
+}
+
+// UpdateProviderInfo updates the provider information with GPU and ngrok data
+func (s *Service) UpdateProviderInfo(ctx context.Context, providerID uuid.UUID, req ProviderHealthPushRequest) error {
+	query := `
+		UPDATE providers 
+		SET 
+			api_url = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE api_url END,
+			product_name = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE product_name END,
+			driver_version = CASE WHEN $4::text IS NOT NULL THEN $4 ELSE driver_version END,
+			cuda_version = CASE WHEN $5::text IS NOT NULL THEN $5 ELSE cuda_version END,
+			gpu_count = CASE WHEN $6::int IS NOT NULL THEN $6 ELSE gpu_count END,
+			memory_total = CASE WHEN $7::int IS NOT NULL THEN $7 ELSE memory_total END,
+			memory_free = CASE WHEN $8::int IS NOT NULL THEN $8 ELSE memory_free END,
+			provider_type = CASE WHEN $9::text IS NOT NULL THEN $9 ELSE provider_type END,
+			updated_at = NOW()
+		WHERE id = $1
+	`
+
+	var ngrokURL *string
+	if req.Ngrok != nil && req.Ngrok.URL != "" {
+		ngrokURL = &req.Ngrok.URL
+	}
+
+	var productName, driverVersion, cudaVersion *string
+	var gpuCount, memoryTotal, memoryFree *int
+	if req.GPU != nil {
+		if req.GPU.ProductName != "" {
+			productName = &req.GPU.ProductName
+		}
+		if req.GPU.DriverVersion != "" {
+			driverVersion = &req.GPU.DriverVersion
+		}
+		if req.GPU.CudaVersion != "" {
+			cudaVersion = &req.GPU.CudaVersion
+		}
+		if req.GPU.GPUCount > 0 {
+			gpuCount = &req.GPU.GPUCount
+		}
+		if req.GPU.MemoryTotal > 0 {
+			memoryTotal = &req.GPU.MemoryTotal
+		}
+		if req.GPU.MemoryFree > 0 {
+			memoryFree = &req.GPU.MemoryFree
+		}
+	}
+
+	var providerType *string
+	if req.ProviderType != "" {
+		providerType = &req.ProviderType
+	}
+
+	_, err := s.db.ExecContext(ctx, query,
+		providerID,
+		ngrokURL,
+		productName,
+		driverVersion,
+		cudaVersion,
+		gpuCount,
+		memoryTotal,
+		memoryFree,
+		providerType,
+	)
+	if err != nil {
+		return fmt.Errorf("error updating provider info: %w", err)
 	}
 
 	return nil

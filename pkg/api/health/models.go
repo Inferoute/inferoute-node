@@ -10,9 +10,8 @@ import (
 type HealthStatus string
 
 const (
-	HealthStatusGreen  HealthStatus = "green"
-	HealthStatusOrange HealthStatus = "orange"
-	HealthStatusRed    HealthStatus = "red"
+	HealthStatusGreen HealthStatus = "green"
+	HealthStatusRed   HealthStatus = "red"
 )
 
 // ProviderHealthHistory represents a health check record
@@ -35,10 +34,32 @@ type ProviderStatus struct {
 	Paused          bool         `json:"paused"`
 }
 
+// GPUInfo represents GPU information in the health push data
+type GPUInfo struct {
+	ProductName   string `json:"product_name"`
+	DriverVersion string `json:"driver_version"`
+	CudaVersion   string `json:"cuda_version"`
+	GPUCount      int    `json:"gpu_count"`
+	UUID          string `json:"uuid"`
+	Utilization   int    `json:"utilization"`
+	MemoryTotal   int    `json:"memory_total"`
+	MemoryUsed    int    `json:"memory_used"`
+	MemoryFree    int    `json:"memory_free"`
+	IsBusy        bool   `json:"is_busy"`
+}
+
+// NgrokInfo represents ngrok tunnel information in the health push data
+type NgrokInfo struct {
+	URL string `json:"url"`
+}
+
 // ProviderHealthMessage represents the message received from RabbitMQ
 type ProviderHealthMessage struct {
-	APIKey string                    `json:"api_key"`
-	Models []ProviderHealthPushModel `json:"models"`
+	APIKey       string                    `json:"api_key"`
+	Models       []ProviderHealthPushModel `json:"models"`
+	GPU          *GPUInfo                  `json:"gpu,omitempty"`
+	Ngrok        *NgrokInfo                `json:"ngrok,omitempty"`
+	ProviderType string                    `json:"provider_type,omitempty"`
 }
 
 // ProviderHealthPushModel represents a model in the health push data

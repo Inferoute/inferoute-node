@@ -56,10 +56,17 @@ CREATE TABLE IF NOT EXISTS providers (
     name STRING NOT NULL,
     is_available BOOLEAN NOT NULL DEFAULT false,
     last_health_check TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    health_status STRING NOT NULL DEFAULT 'red' CHECK (health_status IN ('green', 'orange', 'red')),
+    health_status STRING NOT NULL DEFAULT 'red' CHECK (health_status IN ('green', 'red')),
     tier INT NOT NULL DEFAULT 3 CHECK (tier IN (1, 2, 3)),
     paused BOOLEAN NOT NULL DEFAULT FALSE,
     api_url STRING,
+    provider_type STRING DEFAULT 'ollama' CHECK (provider_type IN ('ollama', 'exolabs', 'llama_cpp')),
+    product_name STRING,
+    driver_version STRING,
+    cuda_version STRING,
+    gpu_count INTEGER DEFAULT 1,
+    memory_total INTEGER,
+    memory_free INTEGER,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -121,6 +128,8 @@ CREATE TABLE IF NOT EXISTS provider_models (
     average_tps DECIMAL(18,8) DEFAULT 0,
     transaction_count INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT true,
+    model_created TIMESTAMP,
+    model_owned_by STRING,
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
     UNIQUE (provider_id, model_name),
@@ -143,7 +152,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     consumer_cost DECIMAL(18,8),
     provider_earnings DECIMAL(18,8),
     service_fee DECIMAL(18,8),
-    status STRING NOT NULL CHECK (status IN ('pending', 'payment', 'completed', 'failed', 'cheating_detected')),
+    status STRING NOT NULL CHECK (status IN ('pending', 'payment', 'completed', 'failed', 'cheating_detected', 'canceled')),
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
     INDEX (consumer_id),
@@ -155,8 +164,11 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE TABLE IF NOT EXISTS provider_health_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
-    health_status STRING NOT NULL CHECK (health_status IN ('green', 'orange', 'red')),
+    health_status STRING NOT NULL CHECK (health_status IN ('green', 'red')),
     latency_ms INTEGER NOT NULL,
+    gpu_utilization INTEGER,
+    memory_used INTEGER,
+    memory_total INTEGER,
     health_check_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT current_timestamp(),
@@ -247,11 +259,6 @@ CREATE TRIGGER update_provider_health_history_updated_at
 
 CREATE TRIGGER update_consumer_models_updated_at
     BEFORE UPDATE ON consumer_models
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER update_user_settings_updated_at
-    BEFORE UPDATE ON user_settings
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
 

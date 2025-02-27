@@ -37,12 +37,12 @@ INSERT INTO user_settings (user_id, max_input_price_tokens, max_output_price_tok
 -- Create providers FIRST (before api_keys that reference them)
 INSERT INTO providers (id, user_id, name, is_available, health_status, tier, paused, api_url, created_at, updated_at) VALUES
     -- Tier 1 Provider (Premium)
-    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '44444444-4444-4444-4444-444444444444', 'Tier 1 Provider', true, 'green', 1, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app', NOW(), NOW()),   -- Tier 1
-    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Tier 2 Provider A', true, 'green', 2, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app', NOW(), NOW()),   -- Tier 2
-    ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Tier 2 Provider B', true, 'green', 2, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app', NOW(), NOW()),  -- Tier 2
-    ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'Tier 3 Provider A', true, 'green', 3, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app', NOW(), NOW()),   -- Tier 3
-    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Tier 3 Provider B', true, 'orange', 3, false, 'https://6a2f-2a02-c7c-a0c9-5000-127c-61ff-fe4b-7035.ngrok-free.app', NOW(), NOW()),     -- Tier 3
-    ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'New Provider', true, 'orange', 3, false, null, NOW(), NOW());   -- Starting at Tier 3, no URL yet
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '44444444-4444-4444-4444-444444444444', 'Tier 1 Provider', true, 'green', 1, false, 'test', NOW(), NOW()),   -- Tier 1
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Tier 2 Provider A', true, 'green', 2, false, 'test', NOW(), NOW()),   -- Tier 2
+    ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Tier 2 Provider B', true, 'green', 2, false, 'test', NOW(), NOW()),  -- Tier 2
+    ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'Tier 3 Provider A', true, 'green', 3, false, 'test', NOW(), NOW()),   -- Tier 3
+    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Tier 3 Provider B', true, 'red', 3, false, 'test', NOW(), NOW()),     -- Tier 3
+    ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'New Provider', true, 'red', 3, false, null, NOW(), NOW());   -- Starting at Tier 3, no URL yet
 
 -- NOW create API keys for providers (after providers exist)
 INSERT INTO api_keys (id, provider_id, api_key, is_active, created_at, updated_at) VALUES
@@ -88,7 +88,7 @@ INSERT INTO provider_health_history (provider_id, health_status, latency_ms, hea
 SELECT 
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     CASE 
-        WHEN random() > 0.999 THEN 'orange'  -- Only 0.1% chance of non-green
+        WHEN random() > 0.999 THEN 'red'  -- Only 0.1% chance of non-green
         ELSE 'green' 
     END,
     floor(random() * 20 + 10)::int,  -- 10-30ms latency
@@ -101,7 +101,7 @@ INSERT INTO provider_health_history (provider_id, health_status, latency_ms, hea
 SELECT 
     'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
     CASE 
-        WHEN random() > 0.97 THEN 'orange'
+        WHEN random() > 0.97 THEN 'red'
         ELSE 'green' 
     END,
     floor(random() * 30 + 15)::int,  -- 15-45ms latency
@@ -114,7 +114,7 @@ INSERT INTO provider_health_history (provider_id, health_status, latency_ms, hea
 SELECT 
     'cccccccc-cccc-cccc-cccc-cccccccccccc',
     CASE 
-        WHEN random() > 0.95 THEN 'orange'
+        WHEN random() > 0.95 THEN 'red'
         ELSE 'green' 
     END,
     floor(random() * 35 + 20)::int,  -- 20-55ms latency
@@ -128,7 +128,6 @@ SELECT
     'dddddddd-dddd-dddd-dddd-dddddddddddd',
     CASE 
         WHEN random() > 0.95 THEN 'red'
-        WHEN random() > 0.90 THEN 'orange'
         ELSE 'green' 
     END,
     floor(random() * 40 + 25)::int,  -- 25-65ms latency
@@ -142,7 +141,6 @@ SELECT
     'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
     CASE 
         WHEN random() > 0.90 THEN 'red'
-        WHEN random() > 0.85 THEN 'orange'
         ELSE 'green' 
     END,
     floor(random() * 50 + 30)::int,  -- 30-80ms latency
@@ -155,7 +153,7 @@ INSERT INTO provider_health_history (provider_id, health_status, latency_ms, hea
 SELECT 
     'ffffffff-ffff-ffff-ffff-ffffffffffff',
     CASE 
-        WHEN random() > 0.98 THEN 'orange'
+        WHEN random() > 0.98 THEN 'red'
         ELSE 'green' 
     END,
     floor(random() * 30 + 20)::int,  -- 20-50ms latency

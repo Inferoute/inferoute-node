@@ -1,2 +1,0 @@
-# inferoute-client
-Inferoute Client 

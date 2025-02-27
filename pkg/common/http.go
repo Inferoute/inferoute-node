@@ -30,11 +30,15 @@ var (
 
 // MakeInternalRequest makes a request to another internal service
 func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEndpoint, path string, body interface{}) (map[string]interface{}, error) {
+	totalStartTime := time.Now()
+
 	// Get config for internal key
+	configStartTime := time.Now()
 	cfg, err := config.LoadConfig("")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
+	configTime := time.Since(configStartTime).Milliseconds()
 
 	// Create HTTP client with timeout
 	client := &http.Client{
@@ -42,6 +46,7 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 	}
 
 	// Convert body to JSON if it exists
+	marshalStartTime := time.Now()
 	var bodyReader io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -50,6 +55,7 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 		}
 		bodyReader = bytes.NewBuffer(jsonBody)
 	}
+	marshalTime := time.Since(marshalStartTime).Milliseconds()
 
 	// Create URL
 	url := fmt.Sprintf("http://%s:%d%s", endpoint.Host, endpoint.Port, path)
@@ -65,21 +71,33 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 	req.Header.Set("X-Internal-Key", cfg.InternalAPIKey)
 
 	// Make request
+	httpStartTime := time.Now()
 	resp, err := client.Do(req)
+	httpTime := time.Since(httpStartTime).Milliseconds()
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Read response body
+	decodeStartTime := time.Now()
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
+	decodeTime := time.Since(decodeStartTime).Milliseconds()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request failed with status %d: %v", resp.StatusCode, result["error"])
+	}
+
+	totalTime := time.Since(totalStartTime).Milliseconds()
+
+	// Get logger from context if available
+	if logger, ok := ctx.Value("logger").(*Logger); ok {
+		logger.Info("Internal request to %s:%d%s - Total: %dms, HTTP: %dms, Marshal: %dms, Decode: %dms, Config: %dms",
+			endpoint.Host, endpoint.Port, path, totalTime, httpTime, marshalTime, decodeTime, configTime)
 	}
 
 	return result, nil
