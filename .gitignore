@@ -8,6 +8,12 @@
 *.out
 go.work
 
+# Project specific
+inferoute-client
+run/
+config.yaml
+debug.log
+
 # Output directories
 bin/
 dist/
@@ -23,6 +29,7 @@ go.work
 # IDE specific files
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 *~
@@ -61,3 +68,7 @@ out/
 
 # Local development files
 docker-compose.override.yml
+
+# Project specific directories
+.specstory/
+go.mdc
