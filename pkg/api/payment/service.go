@@ -98,6 +98,17 @@ func (s *Service) checkForPricingCheating(ctx context.Context, tx *sql.Tx, msg *
 		WHERE provider_id = $1 AND model_name = $2`,
 		msg.ProviderID, msg.ModelName,
 	).Scan(&providerModelID, &modelUpdatedAt)
+
+	if err == sql.ErrNoRows {
+		// Try with ":latest" suffix if exact match not found
+		err = tx.QueryRowContext(ctx, `
+			SELECT id, updated_at 
+			FROM provider_models 
+			WHERE provider_id = $1 AND model_name = $2`,
+			msg.ProviderID, msg.ModelName+":latest",
+		).Scan(&providerModelID, &modelUpdatedAt)
+	}
+
 	if err != nil {
 		return false, uuid.Nil, fmt.Errorf("failed to get provider model details: %w", err)
 	}
@@ -241,6 +252,17 @@ func (s *Service) processPayment(msg *PaymentMessage) error {
 				WHERE provider_id = $1 AND model_name = $2`,
 				msg.ProviderID, msg.ModelName,
 			).Scan(&currentAvgTPS, &currentCount)
+
+			if err == sql.ErrNoRows {
+				// Try with ":latest" suffix if exact match not found
+				err = tx.QueryRow(`
+					SELECT average_tps, transaction_count 
+					FROM provider_models 
+					WHERE provider_id = $1 AND model_name = $2`,
+					msg.ProviderID, msg.ModelName+":latest",
+				).Scan(&currentAvgTPS, &currentCount)
+			}
+
 			if err != nil {
 				return fmt.Errorf("failed to get current TPS stats: %w", err)
 			}
@@ -250,7 +272,7 @@ func (s *Service) processPayment(msg *PaymentMessage) error {
 			newAvgTPS := ((currentAvgTPS * float64(currentCount)) + tokensPerSecond) / float64(newCount)
 
 			// Update the provider model
-			_, err = tx.Exec(`
+			result, err := tx.Exec(`
 				UPDATE provider_models 
 				SET average_tps = $1, 
 					transaction_count = $2,
@@ -258,8 +280,30 @@ func (s *Service) processPayment(msg *PaymentMessage) error {
 				WHERE provider_id = $3 AND model_name = $4`,
 				newAvgTPS, newCount, msg.ProviderID, msg.ModelName,
 			)
+
 			if err != nil {
-				return fmt.Errorf("failed to update provider model TPS stats: %w", err)
+				return fmt.Errorf("failed to update provider model stats: %w", err)
+			}
+
+			// Check if any rows were affected
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("failed to get rows affected: %w", err)
+			}
+
+			// If no rows were affected, try with ":latest" suffix
+			if rowsAffected == 0 {
+				_, err = tx.Exec(`
+					UPDATE provider_models 
+					SET average_tps = $1, 
+						transaction_count = $2,
+						updated_at = NOW()
+					WHERE provider_id = $3 AND model_name = $4`,
+					newAvgTPS, newCount, msg.ProviderID, msg.ModelName+":latest",
+				)
+				if err != nil {
+					return fmt.Errorf("failed to update provider model stats with :latest suffix: %w", err)
+				}
 			}
 		}
 

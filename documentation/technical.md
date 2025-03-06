@@ -877,3 +877,50 @@ POST /api/auth/users
 The presence of the `api_url` field determines whether the user is created as a provider or consumer. After user creation:
 - Consumers can set their price constraints and create API keys
 - Providers can register models, set pricing, and manage their health status
+
+# Model Naming Considerations
+
+## The ":latest" Suffix Issue
+
+Our system handles model names that may be stored with or without a ":latest" suffix. For example, the same model might be referenced as either "llama3.2" or "llama3.2:latest" in different contexts:
+
+- When models are pushed from providers, they may contain the ":latest" suffix in the model name
+- When providers respond to users in JSON responses, they might send the model name without the ":latest" suffix
+- Transactions might reference either form of the model name
+
+This discrepancy can cause lookup failures, particularly in the payment processing service, which needs to match transaction model names against provider_models records. 
+
+### Solution
+
+To address this issue, our payment processing service implements a two-step lookup approach:
+
+1. First query using the exact model name as provided
+2. If no results are found, fall back to querying with ":latest" suffix appended
+
+This pattern is implemented in several places:
+- When checking for pricing cheating
+- When retrieving provider model statistics
+- When updating provider model statistics
+
+Example implementation:
+```go
+// Try exact match first
+err := tx.QueryRowContext(ctx, `
+    SELECT id, updated_at 
+    FROM provider_models 
+    WHERE provider_id = $1 AND model_name = $2`,
+    providerID, modelName,
+).Scan(&providerModelID, &modelUpdatedAt)
+
+// Fall back to ":latest" suffix if no rows found
+if err == sql.ErrNoRows {
+    err = tx.QueryRowContext(ctx, `
+        SELECT id, updated_at 
+        FROM provider_models 
+        WHERE provider_id = $1 AND model_name = $2`,
+        providerID, modelName+":latest",
+    ).Scan(&providerModelID, &modelUpdatedAt)
+}
+```
+
+This approach ensures that transactions can be processed successfully regardless of which form of the model name is used.
