@@ -16,6 +16,7 @@ DROP TABLE IF EXISTS consumers;
 DROP TABLE IF EXISTS consumer_models;
 DROP TABLE IF EXISTS user_settings;
 DROP TABLE IF EXISTS provider_cheating_incidents;
+DROP TABLE IF EXISTS average_model_costs;
 
 -- Create system_settings table
 CREATE TABLE IF NOT EXISTS system_settings (
@@ -206,6 +207,25 @@ CREATE TABLE IF NOT EXISTS provider_cheating_incidents (
     CONSTRAINT fk_provider_cheating_incidents_provider FOREIGN KEY (provider_id) REFERENCES providers(id),
     CONSTRAINT fk_provider_cheating_incidents_provider_model FOREIGN KEY (provider_model_id) REFERENCES provider_models(id)
 );
+
+-- Create average_model_costs table
+CREATE TABLE IF NOT EXISTS average_model_costs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    model_name STRING NOT NULL UNIQUE,
+    avg_input_price_tokens DECIMAL(18,8) NOT NULL,
+    avg_output_price_tokens DECIMAL(18,8) NOT NULL,
+    sample_size INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    CHECK (avg_input_price_tokens >= 0),
+    CHECK (avg_output_price_tokens >= 0),
+    CHECK (sample_size >= 0)
+);
+
+-- Insert default model costs
+INSERT INTO average_model_costs (model_name, avg_input_price_tokens, avg_output_price_tokens, sample_size)
+VALUES ('default', 0.0005, 0.0005, 1)
+ON CONFLICT (model_name) DO NOTHING;
 
 -- Create triggers to update updated_at timestamps
 CREATE OR REPLACE FUNCTION update_updated_at()

@@ -576,11 +576,67 @@ Note: The periodic checking of stale providers and tier updates has been moved t
 We will need some Cloud cron thing to run the check for stale providers and update tiers from externally.
 
 
-## 9.  CockroachDB - DONE!!!!
+## 9. Model Pricing Service (GO)
+
+- **Role:** Manages and provides access to average pricing information for all models across providers. Helps consumers understand typical costs before making requests. Also maintains default pricing for unknown models.
+
+- **Endpoints (HTTP/JSON):**
+
+  1. **GET Model Prices** - Public API
+     - Endpoint: `POST /api/model-pricing/get-prices`
+     - Description: Returns average input and output token prices for requested models
+     - Request:
+       ```json
+       {
+         "models": ["llama2", "mistral", "gpt4"]
+       }
+       ```
+     - Response:
+       ```json
+       {
+         "model_prices": [
+           {
+             "model_name": "llama2",
+             "avg_input_price": 0.0002,
+             "avg_output_price": 0.0003,
+             "sample_size": 15
+           }
+         ]
+       }
+       ```
+     - Notes:
+       - Uses default pricing if model not found
+       - Prices are per token
+       - Sample size indicates number of providers used in average
+
+  2. **Update Model Costs** - Internal API
+     - Endpoint: `POST /api/model-pricing/update-costs`
+     - Description: Recalculates average prices for all models based on current provider prices and updates default pricing
+     - Authentication: Requires X-Internal-Key header
+     - Response:
+       ```json
+       {
+         "status": "Model costs updated successfully"
+       }
+       ```
+     - Notes:
+       - Only considers active provider models
+       - Updates sample size for each model
+       - Updates default pricing based on global averages
+       - Typically run weekly via scheduler
+
+- **Key Features:**
+  - Maintains and auto-updates default pricing for unknown models based on global averages
+  - Calculates model-specific averages from active provider models
+  - Tracks sample size for price confidence
+  - Helps consumers estimate costs before requests
+  - Default pricing ensures system can handle requests for new or uncommon models
+
+## 10.  CockroachDB - DONE!!!!
 
 -  **Role:** Distributed data store for users, API keys, HMACs, provider data, and transaction records.
 
-## 10.  Logging and Monitoring Service
+## 11.  Logging and Monitoring Service
 
 -  **Role:** Capeture and store logs from all of our services.
 
@@ -639,6 +695,7 @@ https://www.buildwithfern.com
 
 Providers
 
+All pricing for providers are set based on a 1M tokens 
 
 
 ### Consumers 
