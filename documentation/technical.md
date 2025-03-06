@@ -326,9 +326,10 @@ POST /api/auth/release
 -  **Endpoints (HTTP/JSON):**
 
 - POST /api/provider/models
-	- Add a new model for the authenticated provider
+	- Add a new model for the authenticated provider (cannot update existing models)
 	- New models are automatically set to is_active = true
 	- Requires model name, service type (ollama/exolabs/llama_cpp), and token pricing
+	- If model already exists for the provider, returns an error with instructions to use PUT endpoint
 	- Authentication: Provider API key required
 
 - GET /api/provider/models
@@ -600,12 +601,19 @@ We will need some Cloud cron thing to run the check for stale providers and upda
              "avg_input_price": 0.0002,
              "avg_output_price": 0.0003,
              "sample_size": 15
+           },
+           {
+             "model_name": "default",
+             "avg_input_price": 0.0002,
+             "avg_output_price": 0.0003,
+             "sample_size": 50
            }
          ]
        }
        ```
      - Notes:
-       - Uses default pricing if model not found
+       - Default pricing is included in the response
+       - Uses default pricing if specific model not found
        - Prices are per token
        - Sample size indicates number of providers used in average
 

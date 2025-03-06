@@ -117,7 +117,13 @@ func (m *Middleware) ErrorHandler() echo.HTTPErrorHandler {
 			message interface{}
 		)
 
-		if he, ok := err.(*echo.HTTPError); ok {
+		if appErr, ok := IsAppError(err); ok {
+			code = appErr.Code
+			message = appErr.Message
+			if appErr.Err != nil {
+				message = appErr.Err.Error()
+			}
+		} else if he, ok := err.(*echo.HTTPError); ok {
 			code = he.Code
 			message = he.Message
 		} else {

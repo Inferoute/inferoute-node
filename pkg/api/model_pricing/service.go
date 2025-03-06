@@ -37,11 +37,14 @@ func (s *Service) GetModelPrices(ctx context.Context, models []string) (*GetPric
 		return nil, fmt.Errorf("failed to get default pricing: %v", err)
 	}
 
+	// Add 'default' to the list of models to query
+	allModels := append(models, "default")
+
 	// Query for all requested models
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT model_name, avg_input_price_tokens, avg_output_price_tokens, sample_size 
 		FROM average_model_costs 
-		WHERE model_name = ANY($1)`, pq.Array(models))
+		WHERE model_name = ANY($1)`, pq.Array(allModels))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query model prices: %v", err)
 	}
@@ -58,12 +61,13 @@ func (s *Service) GetModelPrices(ctx context.Context, models []string) (*GetPric
 		foundModels[pricing.ModelName] = pricing
 	}
 
-	// Build response using default pricing for missing models
+	// Build response including all models and default
 	response := &GetPricesResponse{
-		ModelPrices: make([]ModelPricing, len(models)),
+		ModelPrices: make([]ModelPricing, len(allModels)),
 	}
 
-	for i, modelName := range models {
+	// Add all models including default
+	for i, modelName := range allModels {
 		if pricing, exists := foundModels[modelName]; exists {
 			response.ModelPrices[i] = pricing
 		} else {

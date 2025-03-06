@@ -85,6 +85,10 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
+	// Set custom error handler
+	customMiddleware := common.NewMiddleware(logger)
+	e.HTTPErrorHandler = customMiddleware.ErrorHandler()
+
 	// Add internal security middleware for internal endpoints
 	internalGroup := e.Group("/api/provider/internal")
 	internalGroup.Use(common.InternalOnly())

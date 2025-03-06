@@ -89,6 +89,10 @@ func (s *Service) AddModel(ctx context.Context, providerID uuid.UUID, req AddMod
 	})
 
 	if err != nil {
+		// Check if this is a unique constraint violation
+		if strings.Contains(err.Error(), "provider_models_provider_id_model_name_key") {
+			return nil, common.ErrInvalidInput(fmt.Errorf("model '%s' already exists for this provider. To update the model's configuration, use the PUT /api/provider/models/{model_id} endpoint", modelName))
+		}
 		return nil, fmt.Errorf("error adding model: %v", err)
 	}
 
