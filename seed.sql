@@ -68,19 +68,19 @@ INSERT INTO provider_models (id, provider_id, model_name, service_type, input_pr
     -- Tier 2 Provider B
     ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'deepseek-r1:8b', 'ollama', 0.45, 0.14, 26.8, 480, true, NOW(), NOW()),
     ('cccccccc-cccc-cccc-cccc-ccccccccccca', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'mistral-small', 'ollama', 0.3, 0.9, 33.5, 420, true, NOW(), NOW()),
-    ('cccccccc-cccc-cccc-cccc-cccccccccccb', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama3.2', 'ollama', 0.2, 0.6, 29.1, 390, true, NOW(), NOW()),
+    ('cccccccc-cccc-cccc-cccc-cccccccccccb', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama3.2:latest', 'ollama', 0.2, 0.6, 29.1, 390, true, NOW(), NOW()),
 
     -- Tier 3 Provider A (Basic models)
     ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'deepseek-r1:32b', 'ollama', 0.2, 0.6, 22.4, 280, true, NOW(), NOW()),
-    ('dddddddd-dddd-dddd-dddd-ddddddddddde', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama3.2', 'ollama', 0.15, 0.45, 24.8, 250, true, NOW(), NOW()),
+    ('dddddddd-dddd-dddd-dddd-ddddddddddde', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama3.2:latest', 'ollama', 0.15, 0.45, 24.8, 250, true, NOW(), NOW()),
 
     -- Tier 3 Provider B
     ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'mistral-small', 'ollama', 0.18, 0.5, 20.5, 180, true, NOW(), NOW()),
-    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeef', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'llama3.2', 'ollama', 0.1, 0.3, 18.9, 150, true, NOW(), NOW()),
+    ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeef', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'llama3.2:latest', 'ollama', 0.1, 0.3, 18.9, 150, true, NOW(), NOW()),
 
     -- New Provider (Starting with basic models)
     ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'mistral-small', 'ollama', 0.2, 0.6, 15.2, 25, true, NOW(), NOW()),
-    ('ffffffff-ffff-ffff-ffff-fffffffffff0', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'llama3.2', 'ollama', 0.15, 0.45, 16.8, 18, true, NOW(), NOW());
+    ('ffffffff-ffff-ffff-ffff-fffffffffff0', 'ffffffff-ffff-ffff-ffff-ffffffffffff', 'llama3.2:latest', 'ollama', 0.15, 0.45, 16.8, 18, true, NOW(), NOW());
 
 -- Create health history for the last 30 days
 -- Tier 1 Provider (99.9% uptime)
@@ -179,20 +179,20 @@ INSERT INTO api_keys (id, consumer_id, api_key, is_active, created_at, updated_a
 -- Set up model-specific price settings for consumers
 INSERT INTO consumer_models (id, consumer_id, model_name, max_input_price_tokens, max_output_price_tokens, created_at, updated_at) VALUES
     -- Enterprise user model preferences
-    ('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama3.2', 0.9, 1.8, NOW(), NOW()),
+    ('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'llama3.2:latest', 0.9, 1.8, NOW(), NOW()),
     ('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'deepseek-r1:8b', 0.8, 1.6, NOW(), NOW()),
     
     -- Business user model preferences
-    ('bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama3.2', 0.7, 1.4, NOW(), NOW()),
+    ('bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'llama3.2:latest', 0.7, 1.4, NOW(), NOW()),
     ('bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeef', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'deepseek-r1:8b', 0.6, 1.2, NOW(), NOW()),
     
     -- Startup user model preferences
     ('cccccccc-cccc-cccc-dddd-eeeeeeeeeeee', '77777777-7777-7777-7777-777777777777', 'mistral-medium', 0.4, 0.8, NOW(), NOW()),
-    ('cccccccc-cccc-cccc-dddd-eeeeeeeeeeef', '77777777-7777-7777-7777-777777777777', 'llama3.2', 0.3, 0.6, NOW(), NOW()),
+    ('cccccccc-cccc-cccc-dddd-eeeeeeeeeeef', '77777777-7777-7777-7777-777777777777', 'llama3.2:latest', 0.3, 0.6, NOW(), NOW()),
     
     -- Individual user model preferences
     ('dddddddd-dddd-dddd-dddd-dddddddddddd', '66666666-6666-6666-6666-666666666666', 'deepseek-r1:8b', 0.2, 0.4, NOW(), NOW()),
-    ('dddddddd-dddd-dddd-dddd-dddddddddddf', '66666666-6666-6666-6666-666666666666', 'llama3.2', 0.2, 0.31, NOW(), NOW());
+    ('dddddddd-dddd-dddd-dddd-dddddddddddf', '66666666-6666-6666-6666-666666666666', 'llama3.2:latest', 0.2, 0.31, NOW(), NOW());
 
 -- Set up initial balances for users
 INSERT INTO balances (id, user_id, available_amount, held_amount, created_at, updated_at) VALUES

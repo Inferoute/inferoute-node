@@ -205,7 +205,7 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 			pm.average_tps
 		FROM healthy_providers hp
 		JOIN provider_models pm ON pm.provider_id = hp.provider_id
-		WHERE pm.model_name = $2
+		WHERE (pm.model_name = $2 OR pm.model_name = $2 || ':latest')
 		AND pm.is_active = true
 		AND pm.input_price_tokens <= $3
 		AND pm.output_price_tokens <= $3
@@ -326,7 +326,7 @@ func (h *Handler) FilterUserProviders(c echo.Context) error {
 			pm.average_tps
 		FROM user_providers up
 		JOIN provider_models pm ON pm.provider_id = up.provider_id
-		WHERE ($2 = '' OR pm.model_name = $2)
+		WHERE ($2 = '' OR pm.model_name = $2 OR pm.model_name = $2 || ':latest')
 		AND pm.is_active = true
 		ORDER BY up.tier ASC, pm.average_tps DESC;
 	`

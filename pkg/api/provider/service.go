@@ -39,12 +39,6 @@ func NewService(db *db.DB, logger *common.Logger, rmq *rabbitmq.Client) *Service
 func (s *Service) AddModel(ctx context.Context, providerID uuid.UUID, req AddModelRequest) (*ProviderModel, error) {
 	var model ProviderModel
 
-	// Process model name - remove ":latest" suffix if present
-	modelName := req.ModelName
-	if strings.HasSuffix(modelName, ":latest") {
-		modelName = strings.TrimSuffix(modelName, ":latest")
-	}
-
 	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
 		// Verify provider exists
 		var exists bool
@@ -66,7 +60,7 @@ func (s *Service) AddModel(ctx context.Context, providerID uuid.UUID, req AddMod
 		model = ProviderModel{
 			ID:                uuid.New(),
 			ProviderID:        providerID,
-			ModelName:         modelName,
+			ModelName:         req.ModelName,
 			ServiceType:       req.ServiceType,
 			InputPriceTokens:  req.InputPriceTokens,
 			OutputPriceTokens: req.OutputPriceTokens,
@@ -91,7 +85,7 @@ func (s *Service) AddModel(ctx context.Context, providerID uuid.UUID, req AddMod
 	if err != nil {
 		// Check if this is a unique constraint violation
 		if strings.Contains(err.Error(), "provider_models_provider_id_model_name_key") {
-			return nil, common.ErrInvalidInput(fmt.Errorf("model '%s' already exists for this provider. To update the model's configuration, use the PUT /api/provider/models/{model_id} endpoint", modelName))
+			return nil, common.ErrInvalidInput(fmt.Errorf("model '%s' already exists for this provider. To update the model's configuration, use the PUT /api/provider/models/{model_id} endpoint", req.ModelName))
 		}
 		return nil, fmt.Errorf("error adding model: %v", err)
 	}
@@ -144,12 +138,6 @@ func (s *Service) ListModels(ctx context.Context, providerID uuid.UUID) (*ListMo
 
 // UpdateModel updates an existing model
 func (s *Service) UpdateModel(ctx context.Context, providerID, modelID uuid.UUID, req UpdateModelRequest) (*ProviderModel, error) {
-	// Process model name - remove ":latest" suffix if present
-	modelName := req.ModelName
-	if strings.HasSuffix(modelName, ":latest") {
-		modelName = strings.TrimSuffix(modelName, ":latest")
-	}
-
 	query := `
 		UPDATE provider_models 
 		SET model_name = $1, 
@@ -162,7 +150,7 @@ func (s *Service) UpdateModel(ctx context.Context, providerID, modelID uuid.UUID
 
 	model := &ProviderModel{}
 	err := s.db.QueryRowContext(ctx, query,
-		modelName,
+		req.ModelName,
 		req.ServiceType,
 		req.InputPriceTokens,
 		req.OutputPriceTokens,

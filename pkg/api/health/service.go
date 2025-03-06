@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -172,12 +171,7 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 		// Process models from health update
 		healthModels := make(map[string]ProviderHealthPushModel)
 		for _, model := range msg.Models {
-			// Process model name - remove ":latest" suffix if present
 			modelName := model.ID
-			if strings.HasSuffix(modelName, ":latest") {
-				modelName = strings.TrimSuffix(modelName, ":latest")
-			}
-
 			healthModels[modelName] = model
 
 			// Check if model exists in database
@@ -202,8 +196,25 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 				// Remove from dbModels map to track which models need to be deleted
 				delete(dbModels, modelName)
 			} else {
-				// Add new model to database with default pricing
-				_, err := tx.ExecContext(ctx,
+				// Get average costs for this model from average_model_costs
+				var inputPrice, outputPrice float64
+				err := tx.QueryRowContext(ctx,
+					`SELECT COALESCE(
+						(SELECT avg_input_price_tokens FROM average_model_costs WHERE model_name = $1),
+						(SELECT avg_input_price_tokens FROM average_model_costs WHERE model_name = 'default')
+					) as input_price,
+					COALESCE(
+						(SELECT avg_output_price_tokens FROM average_model_costs WHERE model_name = $1),
+						(SELECT avg_output_price_tokens FROM average_model_costs WHERE model_name = 'default')
+					) as output_price`,
+					modelName,
+				).Scan(&inputPrice, &outputPrice)
+				if err != nil {
+					return fmt.Errorf("failed to get model costs (this should never happen as default costs should always exist): %w", err)
+				}
+
+				// Add new model to database with pricing
+				_, err = tx.ExecContext(ctx,
 					`INSERT INTO provider_models (
 						id, provider_id, model_name, service_type,
 						input_price_tokens, output_price_tokens,
@@ -214,8 +225,8 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 					providerID,
 					modelName,
 					serviceType,
-					0.0001, // Default input price
-					0.0001, // Default output price
+					inputPrice,
+					outputPrice,
 					true,
 					time.Unix(model.Created, 0),
 					model.OwnedBy,

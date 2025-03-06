@@ -502,7 +502,10 @@ The service has several core components:
 - **RabbitMQ Message Processing:**
 	- Consumes health check messages from the "provider_health" exchange with "health_updates" routing key
 	- For each health update:
-		- Ignores models not in the database
+		- Updates existing models' metadata without changing pricing
+		- For new models:
+			1. Checks average_model_costs table for model-specific pricing
+			2. Falls back to default pricing from average_model_costs if model-specific pricing not found
 		- Marks database models as inactive if not in health update
 		- Updates provider health status (green/orange/red):
 			- Green: All registered models are available
@@ -544,7 +547,7 @@ Note: The periodic checking of stale providers and tier updates has been moved t
 
 2. **GET /api/health/providers/filter**
    - Query Parameters:
-     - model_name (required): Name of the model to filter by
+     - model_name (required): Name of the model to filter by (supports both base model names and :latest variants)
      - tier (optional): Filter by specific tier
      - max_cost (required): Maximum cost per token
    - Returns providers with 'green' or 'orange' status
@@ -558,7 +561,7 @@ Note: The periodic checking of stale providers and tier updates has been moved t
 4. **GET /api/health/providers/user**
    - Query Parameters:
      - user_id (required): User ID to filter by
-     - model_name (optional): Filter by specific model
+     - model_name (optional): Filter by specific model (supports both base model names and :latest variants)
    - Returns all non-red status providers belonging to the user
    - Includes model pricing and performance metrics if model filter applied
    - Excludes paused or unavailable providers
@@ -579,7 +582,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
 
 ## 9. Model Pricing Service (GO)
 
-- **Role:** Manages and provides access to average pricing information for all models across providers. Helps consumers understand typical costs before making requests. Also maintains default pricing for unknown models.
+- **Role:** Manages and provides access to average pricing information for all models across providers. Helps consumers understand typical costs before making requests. Also maintains default pricing for unknown models. (this is an actual entry in the database)
 
 - **Endpoints (HTTP/JSON):**
 
@@ -616,6 +619,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
        - Uses default pricing if specific model not found
        - Prices are per token
        - Sample size indicates number of providers used in average
+       - Used by Provider Health service when adding new models during health updates
 
   2. **Update Model Costs** - Internal API
      - Endpoint: `POST /api/model-pricing/update-costs`
@@ -632,6 +636,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
        - Updates sample size for each model
        - Updates default pricing based on global averages
        - Typically run weekly via scheduler
+       - Updates average_model_costs table which is used as reference for new model pricing
 
 - **Key Features:**
   - Maintains and auto-updates default pricing for unknown models based on global averages
@@ -639,6 +644,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
   - Tracks sample size for price confidence
   - Helps consumers estimate costs before requests
   - Default pricing ensures system can handle requests for new or uncommon models
+  - Provides pricing data for Provider Health service when adding new models
 
 ## 10.  CockroachDB - DONE!!!!
 
