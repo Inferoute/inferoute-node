@@ -154,12 +154,12 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	// If we have user providers, prioritize them
 	if len(userProviders) > 0 {
 		s.logger.Info("GERT: %v", userProviders)
-		// Get up to 3 user providers
-		userProviderCount := min(3, len(userProviders))
+		// Get up to 10 user providers
+		userProviderCount := min(10, len(userProviders))
 		userProvidersList := userProviders[:userProviderCount]
 
-		// Get up to 3 non-user providers
-		nonUserProviderCount := min(3, len(selectedProviders))
+		// Get up to 10 non-user providers
+		nonUserProviderCount := min(10, len(selectedProviders))
 		nonUserProvidersList := selectedProviders[:nonUserProviderCount]
 
 		// Combine lists with user providers first
@@ -492,8 +492,8 @@ func (s *Service) selectBestProviders(providers []ProviderInfo, sortBy string) [
 		return scored[i].score > scored[j].score
 	})
 
-	// Return top 3 providers (or all if less than 3)
-	resultCount := min(3, len(scored))
+	// Return top 10 providers (or all if less than 10)
+	resultCount := min(10, len(scored))
 	result := make([]ProviderInfo, resultCount)
 	for i := 0; i < resultCount; i++ {
 		result[i] = scored[i].provider
