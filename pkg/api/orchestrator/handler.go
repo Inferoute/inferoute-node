@@ -97,7 +97,27 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 	response, err := h.service.ProcessRequest(c.Request().Context(), consumerID, &req)
 	if err != nil {
 		h.logger.Error("Failed to process request: %v", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to process request")
+
+		// Check if this is an AppError
+		if appErr, ok := common.IsAppError(err); ok {
+			// Return the AppError with its status code and message
+			return echo.NewHTTPError(appErr.Code, map[string]interface{}{
+				"error": map[string]interface{}{
+					"message": err.Error(),
+					"type":    "inferoute_error",
+					"code":    appErr.Code,
+				},
+			})
+		}
+
+		// For other errors, return a generic error
+		return echo.NewHTTPError(http.StatusInternalServerError, map[string]interface{}{
+			"error": map[string]interface{}{
+				"message": err.Error(),
+				"type":    "inferoute_error",
+				"code":    http.StatusInternalServerError,
+			},
+		})
 	}
 
 	return c.JSON(http.StatusOK, response)
