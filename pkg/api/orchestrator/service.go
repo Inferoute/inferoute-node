@@ -12,6 +12,7 @@ import (
 	"github.com/sentnl/inferoute-node/internal/config"
 	"github.com/sentnl/inferoute-node/internal/db"
 	"github.com/sentnl/inferoute-node/pkg/common"
+	"github.com/sentnl/inferoute-node/pkg/common/usermsg"
 	"github.com/sentnl/inferoute-node/pkg/rabbitmq"
 )
 
@@ -140,7 +141,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	}
 
 	if len(providers) == 0 {
-		return nil, fmt.Errorf("no healthy providers available for model %s within price constraints", req.Model)
+		return nil, usermsg.NoMatchingProviderError(req.Model, settings.MaxInputPriceTokens, settings.MaxOutputPriceTokens)
 	}
 
 	// 4. Select best providers based on price and latency
@@ -148,7 +149,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	selectedProviders := s.selectBestProviders(providers, req.Sort)
 	s.logger.Info("Selecting best providers took: %dms", time.Since(selectProvidersStartTime).Milliseconds())
 	if len(selectedProviders) == 0 {
-		return nil, fmt.Errorf("no suitable providers found for model %s", req.Model)
+		return nil, usermsg.NoMatchingProviderError(req.Model, settings.MaxInputPriceTokens, settings.MaxOutputPriceTokens)
 	}
 
 	// If we have user providers, prioritize them
@@ -425,7 +426,7 @@ func (s *Service) getHealthyProviders(ctx context.Context, model string, setting
 
 	if len(providers) == 0 {
 		s.logger.Error("No valid providers found after filtering. Raw response: %v", string(response))
-		return nil, fmt.Errorf("no valid providers available for model %s within price constraints", model)
+		return nil, usermsg.NoMatchingProviderError(model, settings.MaxInputPriceTokens, settings.MaxOutputPriceTokens)
 	}
 
 	s.logger.Info("Found %d valid providers after filtering", len(providers))
