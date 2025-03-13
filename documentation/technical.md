@@ -665,7 +665,8 @@ We will need some Cloud cron thing to run the check for stale providers and upda
              "output_high": 0.00035,
              "output_low": 0.00028,
              "output_close": 0.00032,
-             "volume": 15000
+             "volume_input": 15000,
+             "volume_output": 12000
            },
            {
              "model_name": "llama3.2",
@@ -678,7 +679,8 @@ We will need some Cloud cron thing to run the check for stale providers and upda
              "output_high": 0.00032,
              "output_low": 0.00028,
              "output_close": 0.00030,
-             "volume": 12000
+             "volume_input": 10000,
+             "volume_output": 8000
            }
          ]
        }
@@ -687,7 +689,8 @@ We will need some Cloud cron thing to run the check for stale providers and upda
        - Data is ordered by timestamp in descending order (newest first)
        - Timestamps are in RFC3339 format
        - Prices are per token
-       - Volume represents the sum of transaction counts from all providers for that model
+       - Volume_input represents the sum of input tokens from all transactions for that model
+       - Volume_output represents the sum of output tokens from all transactions for that model
 
   4. **Update Model Pricing Data** - Internal API
      - Endpoint: `POST /api/model-pricing/update-pricing-data`
@@ -712,7 +715,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
     - Lowest price (input_low, output_low)
     - Average price (input_close, output_close)
     - Previous close price (input_open, output_open)
-    - Transaction volume
+    - Transaction volume (input tokens and output tokens)
   - Data is stored in the `model_pricing_data` table
   - The scheduler runs automatically when the service starts and continues until shutdown
   - This time-series data enables visualization of price trends using candlestick charts

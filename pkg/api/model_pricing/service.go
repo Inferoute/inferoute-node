@@ -151,6 +151,26 @@ func (s *Service) UpdateModelCosts(ctx context.Context) error {
 func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 	s.logger.Info("Starting to update model pricing data for candlestick charts")
 
+	// Get the last processed transaction timestamp
+	var lastProcessedTime time.Time
+	err := s.db.QueryRowContext(ctx, `
+		SELECT setting_value 
+		FROM system_settings 
+		WHERE setting_key = 'last_processed_transaction_time'`).
+		Scan(&lastProcessedTime)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// If no record exists, use a very old timestamp
+			lastProcessedTime = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+		} else {
+			s.logger.Error("Failed to get last processed transaction time: %v", err)
+			return 0, fmt.Errorf("failed to get last processed transaction time: %v", err)
+		}
+	}
+
+	// Get current time to use as the new last processed time
+	currentTime := time.Now()
+
 	// Get all unique model names from provider_models
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT model_name 
@@ -179,7 +199,7 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 	// Collect metrics for default calculation
 	var inputHighs, inputLows, inputCloses []float64
 	var outputHighs, outputLows, outputCloses []float64
-	var totalVolume int
+	var totalVolumeInput, totalVolumeOutput int
 
 	// Process each model
 	for _, modelName := range modelNames {
@@ -210,7 +230,6 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 
 			// Get current pricing metrics for the model
 			var inputHigh, inputLow, inputClose, outputHigh, outputLow, outputClose float64
-			var volume int
 
 			// Calculate from provider_models
 			err = tx.QueryRowContext(ctx, `
@@ -220,12 +239,11 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 					AVG(input_price_tokens),
 					MAX(output_price_tokens), 
 					MIN(output_price_tokens), 
-					AVG(output_price_tokens),
-					SUM(transaction_count)
+					AVG(output_price_tokens)
 				FROM provider_models 
 				WHERE model_name = $1 AND is_active = true`,
 				modelName).
-				Scan(&inputHigh, &inputLow, &inputClose, &outputHigh, &outputLow, &outputClose, &volume)
+				Scan(&inputHigh, &inputLow, &inputClose, &outputHigh, &outputLow, &outputClose)
 
 			if err != nil {
 				if err == sql.ErrNoRows {
@@ -242,20 +260,39 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 				prevOutputClose = outputClose
 			}
 
+			// Get volume data from transactions table
+			var volumeInput, volumeOutput int
+			err = tx.QueryRowContext(ctx, `
+				SELECT 
+					COALESCE(SUM(total_input_tokens), 0),
+					COALESCE(SUM(total_output_tokens), 0)
+				FROM transactions 
+				WHERE model_name = $1 
+				AND status = 'completed' 
+				AND updated_at > $2 
+				AND updated_at <= $3`,
+				modelName, lastProcessedTime, currentTime).
+				Scan(&volumeInput, &volumeOutput)
+
+			if err != nil && err != sql.ErrNoRows {
+				s.logger.Error("Failed to get volume data for model %s: %v", modelName, err)
+				return fmt.Errorf("failed to get volume data for model %s: %v", modelName, err)
+			}
+
 			// Insert the new pricing data
 			_, err = tx.ExecContext(ctx, `
 				INSERT INTO model_pricing_data (
 					model_name, timestamp,
 					input_open, input_high, input_low, input_close,
 					output_open, output_high, output_low, output_close,
-					volume
+					volume_input, volume_output
 				) VALUES (
-					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 				)`,
-				modelName, time.Now(),
+				modelName, currentTime,
 				prevInputClose, inputHigh, inputLow, inputClose,
 				prevOutputClose, outputHigh, outputLow, outputClose,
-				volume)
+				volumeInput, volumeOutput)
 
 			if err != nil {
 				s.logger.Error("Failed to insert pricing data for model %s: %v", modelName, err)
@@ -269,7 +306,8 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 			outputHighs = append(outputHighs, outputHigh)
 			outputLows = append(outputLows, outputLow)
 			outputCloses = append(outputCloses, outputClose)
-			totalVolume += volume
+			totalVolumeInput += volumeInput
+			totalVolumeOutput += volumeOutput
 
 			return nil
 		})
@@ -323,14 +361,14 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 					model_name, timestamp,
 					input_open, input_high, input_low, input_close,
 					output_open, output_high, output_low, output_close,
-					volume
+					volume_input, volume_output
 				) VALUES (
-					'default', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+					'default', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 				)`,
-				time.Now(),
+				currentTime,
 				defaultPrevInputClose, defaultInputHigh, defaultInputLow, defaultInputClose,
 				defaultPrevOutputClose, defaultOutputHigh, defaultOutputLow, defaultOutputClose,
-				totalVolume)
+				totalVolumeInput, totalVolumeOutput)
 
 			if err != nil {
 				s.logger.Error("Failed to insert default pricing data: %v", err)
@@ -346,6 +384,16 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 			processedCount++ // Count default as processed
 			s.logger.Info("Updated default pricing data based on current batch averages")
 		}
+	}
+
+	// Update the last processed transaction time
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE system_settings 
+		SET setting_value = $1, updated_at = NOW() 
+		WHERE setting_key = 'last_processed_transaction_time'`,
+		currentTime.Format(time.RFC3339))
+	if err != nil {
+		s.logger.Error("Failed to update last processed transaction time: %v", err)
 	}
 
 	s.logger.Info("Successfully updated pricing data for %d models", processedCount)
@@ -377,7 +425,7 @@ func (s *Service) GetModelPricingData(ctx context.Context, modelName string, lim
 			model_name, timestamp,
 			input_open, input_high, input_low, input_close,
 			output_open, output_high, output_low, output_close,
-			volume
+			volume_input, volume_output
 		FROM model_pricing_data
 		WHERE model_name = $1
 		ORDER BY timestamp DESC
@@ -390,16 +438,16 @@ func (s *Service) GetModelPricingData(ctx context.Context, modelName string, lim
 	}
 	defer rows.Close()
 
-	var data []ModelPricingData
+	var data []ModelPricingDataResponse
 	for rows.Next() {
-		var item ModelPricingData
+		var item ModelPricingDataResponse
 		var timestamp time.Time
 
 		err := rows.Scan(
 			&item.ModelName, &timestamp,
 			&item.InputOpen, &item.InputHigh, &item.InputLow, &item.InputClose,
 			&item.OutputOpen, &item.OutputHigh, &item.OutputLow, &item.OutputClose,
-			&item.Volume)
+			&item.VolumeInput, &item.VolumeOutput)
 
 		if err != nil {
 			s.logger.Error("Failed to scan pricing data: %v", err)

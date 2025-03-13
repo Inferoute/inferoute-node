@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS system_settings (
     updated_at TIMESTAMP DEFAULT current_timestamp()
 );
 
+-- Insert default system settings
+INSERT INTO system_settings (setting_key, setting_value, description)
+VALUES 
+('last_processed_transaction_time', '1970-01-01T00:00:00Z', 'Timestamp of the last processed transaction for model pricing data')
+ON CONFLICT (setting_key) DO NOTHING;
+
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -241,7 +247,8 @@ CREATE TABLE IF NOT EXISTS model_pricing_data (
     output_high DECIMAL(18,8) NOT NULL,
     output_low DECIMAL(18,8) NOT NULL,
     output_close DECIMAL(18,8) NOT NULL,
-    volume INTEGER NOT NULL DEFAULT 0,
+    volume_input INTEGER NOT NULL DEFAULT 0,
+    volume_output INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
     INDEX (model_name, timestamp DESC)
@@ -252,13 +259,13 @@ INSERT INTO model_pricing_data (
     model_name, timestamp, 
     input_open, input_high, input_low, input_close,
     output_open, output_high, output_low, output_close,
-    volume
+    volume_input, volume_output
 )
 VALUES (
     'default', '1942-01-01 20:42:42', 
     0.00050000, 0.00050000, 0.00050000, 0.00050000,
     0.00050000, 0.00050000, 0.00050000, 0.00050000,
-    42000
+    42000, 42000
 )
 ON CONFLICT DO NOTHING;
 
