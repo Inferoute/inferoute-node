@@ -80,7 +80,11 @@ INSERT INTO provider_models (
 SELECT
     gen_random_uuid(),
     id,
-    'deepseek-r1:8b',
+    CASE 
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 0 THEN 'deepseek-r1:8b'
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 1 THEN 'llama3.2:latest'
+        ELSE 'deepseek-r1:32b'
+    END,
     'ollama',
     (0.1 + (random() * 0.9))::DECIMAL(18,8),
     (0.2 + (random() * 1.8))::DECIMAL(18,8),
@@ -154,7 +158,11 @@ INSERT INTO provider_models (
 SELECT
     gen_random_uuid(),
     id,
-    'deepseek-r1:8b',
+    CASE 
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 0 THEN 'deepseek-r1:8b'
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 1 THEN 'llama3.2:latest'
+        ELSE 'deepseek-r1:32b'
+    END,
     'ollama',
     (0.1 + (random() * 0.9))::DECIMAL(18,8),
     (0.2 + (random() * 1.8))::DECIMAL(18,8),
@@ -217,7 +225,11 @@ INSERT INTO provider_models (
 SELECT
     gen_random_uuid(),
     id,
-    'deepseek-r1:8b',
+    CASE 
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 0 THEN 'deepseek-r1:8b'
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 1 THEN 'llama3.2:latest'
+        ELSE 'deepseek-r1:32b'
+    END,
     'ollama',
     (0.1 + (random() * 0.9))::DECIMAL(18,8),
     (0.2 + (random() * 1.8))::DECIMAL(18,8),
@@ -280,7 +292,11 @@ INSERT INTO provider_models (
 SELECT
     gen_random_uuid(),
     id,
-    'deepseek-r1:8b',
+    CASE 
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 0 THEN 'deepseek-r1:8b'
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 1 THEN 'llama3.2:latest'
+        ELSE 'deepseek-r1:32b'
+    END,
     'ollama',
     (0.1 + (random() * 0.9))::DECIMAL(18,8),
     (0.2 + (random() * 1.8))::DECIMAL(18,8),
@@ -343,7 +359,11 @@ INSERT INTO provider_models (
 SELECT
     gen_random_uuid(),
     id,
-    'deepseek-r1:8b',
+    CASE 
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 0 THEN 'deepseek-r1:8b'
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 1 THEN 'llama3.2:latest'
+        ELSE 'deepseek-r1:32b'
+    END,
     'ollama',
     (0.1 + (random() * 0.9))::DECIMAL(18,8),
     (0.2 + (random() * 1.8))::DECIMAL(18,8),
@@ -406,7 +426,11 @@ INSERT INTO provider_models (
 SELECT
     gen_random_uuid(),
     id,
-    'deepseek-r1:8b',
+    CASE 
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 0 THEN 'deepseek-r1:8b'
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 1 THEN 'llama3.2:latest'
+        ELSE 'deepseek-r1:32b'
+    END,
     'ollama',
     (0.1 + (random() * 0.9))::DECIMAL(18,8),
     (0.2 + (random() * 1.8))::DECIMAL(18,8),
@@ -469,7 +493,11 @@ INSERT INTO provider_models (
 SELECT
     gen_random_uuid(),
     id,
-    'deepseek-r1:8b',
+    CASE 
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 0 THEN 'deepseek-r1:8b'
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 1 THEN 'llama3.2:latest'
+        ELSE 'deepseek-r1:32b'
+    END,
     'ollama',
     (0.1 + (random() * 0.9))::DECIMAL(18,8),
     (0.2 + (random() * 1.8))::DECIMAL(18,8),
@@ -532,7 +560,11 @@ INSERT INTO provider_models (
 SELECT
     gen_random_uuid(),
     id,
-    'deepseek-r1:8b',
+    CASE 
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 0 THEN 'deepseek-r1:8b'
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 1 THEN 'llama3.2:latest'
+        ELSE 'deepseek-r1:32b'
+    END,
     'ollama',
     (0.1 + (random() * 0.9))::DECIMAL(18,8),
     (0.2 + (random() * 1.8))::DECIMAL(18,8),
@@ -595,7 +627,11 @@ INSERT INTO provider_models (
 SELECT
     gen_random_uuid(),
     id,
-    'deepseek-r1:8b',
+    CASE 
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 0 THEN 'deepseek-r1:8b'
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 1 THEN 'llama3.2:latest'
+        ELSE 'deepseek-r1:32b'
+    END,
     'ollama',
     (0.1 + (random() * 0.9))::DECIMAL(18,8),
     (0.2 + (random() * 1.8))::DECIMAL(18,8),
@@ -658,7 +694,11 @@ INSERT INTO provider_models (
 SELECT
     gen_random_uuid(),
     id,
-    'deepseek-r1:8b',
+    CASE 
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 0 THEN 'deepseek-r1:8b'
+        WHEN ROW_NUMBER() OVER (ORDER BY id) % 3 = 1 THEN 'llama3.2:latest'
+        ELSE 'deepseek-r1:32b'
+    END,
     'ollama',
     (0.1 + (random() * 0.9))::DECIMAL(18,8),
     (0.2 + (random() * 1.8))::DECIMAL(18,8),

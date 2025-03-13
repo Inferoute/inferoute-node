@@ -24,6 +24,7 @@ graph TB
             ProviderComm[Provider Communication]
             Payment[Payment Processing]
             ConsumerMgmt[Consumer Management]
+            ModelPricing[Model Pricing Service]
         end
         
         subgraph Infrastructure
@@ -48,15 +49,18 @@ graph TB
     NGINX --> Auth
     NGINX --> ProviderMgmt
     NGINX --> ConsumerMgmt
+    NGINX --> ModelPricing
     
     %% Service interactions
     Orchestrator --> Auth
     Orchestrator --> ProviderHealth
     Orchestrator --> ProviderComm
     Orchestrator --> RabbitMQ
+    Orchestrator --> ModelPricing
     
     ProviderMgmt --> RabbitMQ
     ProviderHealth --> RabbitMQ
+    ProviderHealth --> ModelPricing
     Payment --> RabbitMQ
     
     %% Database connections
@@ -67,6 +71,7 @@ graph TB
     ProviderComm --> CockroachDB
     Payment --> CockroachDB
     ConsumerMgmt --> CockroachDB
+    ModelPricing --> CockroachDB
     
     %% Provider infrastructure
     ProviderComm --> ProviderClient
@@ -82,7 +87,7 @@ graph TB
     
     class Consumer,Provider,CloudflareProxy external
     class CockroachDB,RabbitMQ,OpenTelemetry infrastructure
-    class Orchestrator,Auth,ProviderMgmt,ProviderHealth,ProviderComm,Payment,ConsumerMgmt service
+    class Orchestrator,Auth,ProviderMgmt,ProviderHealth,ProviderComm,Payment,ConsumerMgmt,ModelPricing service
 ```
 
 # Services and Their Roles
