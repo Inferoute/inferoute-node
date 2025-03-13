@@ -582,13 +582,14 @@ We will need some Cloud cron thing to run the check for stale providers and upda
 
 ## 9. Model Pricing Service (GO)
 
-- **Role:** Manages and provides access to average pricing information for all models across providers. Helps consumers understand typical costs before making requests. Also maintains default pricing for unknown models. (this is an actual entry in the database)
+- **Role:** Manages and provides access to average pricing information for all models across providers. Helps consumers understand typical costs before making requests. Also maintains default pricing for unknown models and collects time-series pricing data for candlestick charts. The service includes a scheduler that runs every minute to collect and store pricing metrics.
 
 - **Endpoints (HTTP/JSON):**
 
   1. **GET Model Prices** - Public API
      - Endpoint: `POST /api/model-pricing/get-prices`
      - Description: Returns average input and output token prices for requested models
+     - Authentication: Requires Provider API key
      - Request:
        ```json
        {
@@ -620,7 +621,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
        - Prices are per token
        - Sample size indicates number of providers used in average
        - Used by Provider Health service when adding new models during health updates
-
+       
   2. **Update Model Costs** - Internal API
      - Endpoint: `POST /api/model-pricing/update-costs`
      - Description: Recalculates average prices for all models based on current provider prices and updates default pricing
@@ -638,6 +639,79 @@ We will need some Cloud cron thing to run the check for stale providers and upda
        - Typically run weekly via scheduler
        - Updates average_model_costs table which is used as reference for new model pricing
 
+  3. **Get Model Pricing Data** - Public API
+     - Endpoint: `GET /api/model-pricing/pricing-data/:model_name`
+     - Description: Returns time-series pricing data for a specific model in a format suitable for candlestick charts
+     - Authentication: Requires Provider API key
+     - Query Parameters:
+       - `limit` (optional): Number of data points to return (default: 60)
+     - Response:
+       ```json
+       {
+         "data": [
+           {
+             "model_name": "llama3.2",
+             "timestamp": "2023-06-15T14:30:00Z",
+             "input_open": 0.00020,
+             "input_high": 0.00025,
+             "input_low": 0.00018,
+             "input_close": 0.00022,
+             "output_open": 0.00030,
+             "output_high": 0.00035,
+             "output_low": 0.00028,
+             "output_close": 0.00032,
+             "volume": 15000
+           },
+           {
+             "model_name": "llama3.2",
+             "timestamp": "2023-06-15T14:29:00Z",
+             "input_open": 0.00018,
+             "input_high": 0.00022,
+             "input_low": 0.00018,
+             "input_close": 0.00020,
+             "output_open": 0.00028,
+             "output_high": 0.00032,
+             "output_low": 0.00028,
+             "output_close": 0.00030,
+             "volume": 12000
+           }
+         ]
+       }
+       ```
+     - Notes:
+       - Data is ordered by timestamp in descending order (newest first)
+       - Timestamps are in RFC3339 format
+       - Prices are per token
+       - Volume represents the sum of transaction counts from all providers for that model
+
+  4. **Update Model Pricing Data** - Internal API
+     - Endpoint: `POST /api/model-pricing/update-pricing-data`
+     - Description: Manually triggers the collection and storage of pricing data for all models
+     - Authentication: Requires X-Internal-Key header
+     - Response:
+       ```json
+       {
+         "status": "Model pricing data updated successfully",
+         "count": 12
+       }
+       ```
+     - Notes:
+       - Count indicates the number of models processed
+       - This endpoint is typically not called manually as the service includes a scheduler
+       - Automatically runs every minute via internal scheduler
+
+- **Scheduler:**
+  - The service includes an internal scheduler that runs every minute
+  - On each run, it collects pricing metrics for all active models:
+    - Highest price (input_high, output_high)
+    - Lowest price (input_low, output_low)
+    - Average price (input_close, output_close)
+    - Previous close price (input_open, output_open)
+    - Transaction volume
+  - Data is stored in the `model_pricing_data` table
+  - The scheduler runs automatically when the service starts and continues until shutdown
+  - This time-series data enables visualization of price trends using candlestick charts
+
 - **Key Features:**
   - Maintains and auto-updates default pricing for unknown models based on global averages
   - Calculates model-specific averages from active provider models
@@ -645,6 +719,8 @@ We will need some Cloud cron thing to run the check for stale providers and upda
   - Helps consumers estimate costs before requests
   - Default pricing ensures system can handle requests for new or uncommon models
   - Provides pricing data for Provider Health service when adding new models
+  - Collects and stores time-series pricing data for visualization in candlestick charts
+  - Automatic minute-by-minute data collection via internal scheduler
 
 ## 10.  CockroachDB - DONE!!!!
 
