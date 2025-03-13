@@ -173,11 +173,13 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 		modelNames = append(modelNames, modelName)
 	}
 
-	// Add default model
-	modelNames = append(modelNames, "default")
-
 	// Count of models processed
 	processedCount := 0
+
+	// Collect metrics for default calculation
+	var inputHighs, inputLows, inputCloses []float64
+	var outputHighs, outputLows, outputCloses []float64
+	var totalVolume int
 
 	// Process each model
 	for _, modelName := range modelNames {
@@ -206,60 +208,32 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 				hasLastEntry = true
 			}
 
-			// For default model, use fixed values if no previous entry
-			if modelName == "default" && !hasLastEntry {
-				prevInputClose = 0.0005
-				prevOutputClose = 0.0005
-				hasLastEntry = true
-			}
-
 			// Get current pricing metrics for the model
 			var inputHigh, inputLow, inputClose, outputHigh, outputLow, outputClose float64
 			var volume int
 
-			if modelName == "default" {
-				// For default model, get from average_model_costs
-				err := tx.QueryRowContext(ctx, `
-					SELECT 
-						avg_input_price_tokens, 
-						avg_input_price_tokens, 
-						avg_input_price_tokens,
-						avg_output_price_tokens, 
-						avg_output_price_tokens, 
-						avg_output_price_tokens,
-						sample_size
-					FROM average_model_costs 
-					WHERE model_name = 'default'`).
-					Scan(&inputHigh, &inputLow, &inputClose, &outputHigh, &outputLow, &outputClose, &volume)
+			// Calculate from provider_models
+			err = tx.QueryRowContext(ctx, `
+				SELECT 
+					MAX(input_price_tokens), 
+					MIN(input_price_tokens), 
+					AVG(input_price_tokens),
+					MAX(output_price_tokens), 
+					MIN(output_price_tokens), 
+					AVG(output_price_tokens),
+					SUM(transaction_count)
+				FROM provider_models 
+				WHERE model_name = $1 AND is_active = true`,
+				modelName).
+				Scan(&inputHigh, &inputLow, &inputClose, &outputHigh, &outputLow, &outputClose, &volume)
 
-				if err != nil {
-					s.logger.Error("Failed to get default model pricing: %v", err)
-					return fmt.Errorf("failed to get default model pricing: %v", err)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					s.logger.Info("No active providers for model %s, skipping", modelName)
+					return nil
 				}
-			} else {
-				// For other models, calculate from provider_models
-				err := tx.QueryRowContext(ctx, `
-					SELECT 
-						MAX(input_price_tokens), 
-						MIN(input_price_tokens), 
-						AVG(input_price_tokens),
-						MAX(output_price_tokens), 
-						MIN(output_price_tokens), 
-						AVG(output_price_tokens),
-						SUM(transaction_count)
-					FROM provider_models 
-					WHERE model_name = $1 AND is_active = true`,
-					modelName).
-					Scan(&inputHigh, &inputLow, &inputClose, &outputHigh, &outputLow, &outputClose, &volume)
-
-				if err != nil {
-					if err == sql.ErrNoRows {
-						s.logger.Info("No active providers for model %s, skipping", modelName)
-						return nil
-					}
-					s.logger.Error("Failed to calculate pricing metrics for model %s: %v", modelName, err)
-					return fmt.Errorf("failed to calculate pricing metrics for model %s: %v", modelName, err)
-				}
+				s.logger.Error("Failed to calculate pricing metrics for model %s: %v", modelName, err)
+				return fmt.Errorf("failed to calculate pricing metrics for model %s: %v", modelName, err)
 			}
 
 			// If we don't have a previous entry, use current values for open
@@ -288,6 +262,15 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 				return fmt.Errorf("failed to insert pricing data for model %s: %v", modelName, err)
 			}
 
+			// Collect metrics for default calculation
+			inputHighs = append(inputHighs, inputHigh)
+			inputLows = append(inputLows, inputLow)
+			inputCloses = append(inputCloses, inputClose)
+			outputHighs = append(outputHighs, outputHigh)
+			outputLows = append(outputLows, outputLow)
+			outputCloses = append(outputCloses, outputClose)
+			totalVolume += volume
+
 			return nil
 		})
 
@@ -299,8 +282,88 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 		processedCount++
 	}
 
+	// Update default entry based on current batch averages
+	if len(inputCloses) > 0 {
+		err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
+			// Calculate averages for default entry
+			var defaultInputHigh, defaultInputLow, defaultInputClose float64
+			var defaultOutputHigh, defaultOutputLow, defaultOutputClose float64
+			var defaultPrevInputClose, defaultPrevOutputClose float64
+
+			// Calculate averages from current batch
+			defaultInputHigh = calculateAverage(inputHighs)
+			defaultInputLow = calculateAverage(inputLows)
+			defaultInputClose = calculateAverage(inputCloses)
+			defaultOutputHigh = calculateAverage(outputHighs)
+			defaultOutputLow = calculateAverage(outputLows)
+			defaultOutputClose = calculateAverage(outputCloses)
+
+			// Get previous default entry
+			err := tx.QueryRowContext(ctx, `
+				SELECT input_close, output_close 
+				FROM model_pricing_data 
+				WHERE model_name = 'default' 
+				ORDER BY timestamp DESC 
+				LIMIT 1`).Scan(&defaultPrevInputClose, &defaultPrevOutputClose)
+
+			if err != nil {
+				if err == sql.ErrNoRows {
+					// No previous entry, use current values
+					defaultPrevInputClose = defaultInputClose
+					defaultPrevOutputClose = defaultOutputClose
+				} else {
+					s.logger.Error("Failed to get previous default pricing data: %v", err)
+					return fmt.Errorf("failed to get previous default pricing data: %v", err)
+				}
+			}
+
+			// Insert default entry
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO model_pricing_data (
+					model_name, timestamp,
+					input_open, input_high, input_low, input_close,
+					output_open, output_high, output_low, output_close,
+					volume
+				) VALUES (
+					'default', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+				)`,
+				time.Now(),
+				defaultPrevInputClose, defaultInputHigh, defaultInputLow, defaultInputClose,
+				defaultPrevOutputClose, defaultOutputHigh, defaultOutputLow, defaultOutputClose,
+				totalVolume)
+
+			if err != nil {
+				s.logger.Error("Failed to insert default pricing data: %v", err)
+				return fmt.Errorf("failed to insert default pricing data: %v", err)
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			s.logger.Error("Failed to update default pricing data: %v", err)
+		} else {
+			processedCount++ // Count default as processed
+			s.logger.Info("Updated default pricing data based on current batch averages")
+		}
+	}
+
 	s.logger.Info("Successfully updated pricing data for %d models", processedCount)
 	return processedCount, nil
+}
+
+// Helper function to calculate average of a slice of float64
+func calculateAverage(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+
+	var sum float64
+	for _, v := range values {
+		sum += v
+	}
+
+	return sum / float64(len(values))
 }
 
 // GetModelPricingData retrieves candlestick chart data for a specific model

@@ -35,12 +35,22 @@ random_fluctuation() {
 update_model_prices() {
     echo "$(date): Updating model prices..."
     
-    # Get a list of active provider models
-    local models=$(execute_sql "SELECT id, model_name, input_price_tokens, output_price_tokens FROM provider_models WHERE is_active = true LIMIT 10;" -t | tr -d ' ')
+    # Get a list of active provider models one by one to avoid parsing issues
+    # First, get the IDs of active models
+    local model_ids=$(psql -t -A "postgresql://${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=${DB_SSL_MODE}" \
+        -c "SELECT id FROM provider_models WHERE is_active = true LIMIT 10;")
     
-    # Process each model
-    echo "$models" | while IFS='|' read -r id model_name input_price output_price; do
-        if [ -z "$id" ]; then
+    # Process each model ID
+    for id in $model_ids; do
+        # Get model details
+        local model_data=$(psql -t -A "postgresql://${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=${DB_SSL_MODE}" \
+            -c "SELECT model_name, input_price_tokens, output_price_tokens FROM provider_models WHERE id = '$id';")
+        
+        # Parse model data
+        IFS='|' read -r model_name input_price output_price <<< "$model_data"
+        
+        # Skip if any field is empty
+        if [ -z "$model_name" ] || [ -z "$input_price" ] || [ -z "$output_price" ]; then
             continue
         fi
         
@@ -56,7 +66,7 @@ update_model_prices() {
         new_output_price=$(echo "scale=8; if(${new_output_price} < 0.00001) 0.00001 else ${new_output_price}" | bc)
         
         # Update the model prices
-        execute_sql "UPDATE provider_models SET input_price_tokens = ${new_input_price}, output_price_tokens = ${new_output_price}, updated_at = NOW() WHERE id = '${id}';"
+        execute_sql "UPDATE provider_models SET input_price_tokens = ${new_input_price}, output_price_tokens = ${new_output_price}, updated_at = NOW() WHERE id = '${id}';" > /dev/null
         
         echo "Updated model ${model_name}: input price ${input_price} -> ${new_input_price}, output price ${output_price} -> ${new_output_price}"
     done
