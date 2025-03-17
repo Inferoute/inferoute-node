@@ -196,16 +196,16 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 				// Remove from dbModels map to track which models need to be deleted
 				delete(dbModels, modelName)
 			} else {
-				// Get average costs for this model from average_model_costs
+				// Get average costs for this model from model_pricing_data
 				var inputPrice, outputPrice float64
 				err := tx.QueryRowContext(ctx,
 					`SELECT COALESCE(
-						(SELECT avg_input_price_tokens FROM average_model_costs WHERE model_name = $1),
-						(SELECT avg_input_price_tokens FROM average_model_costs WHERE model_name = 'default')
+						(SELECT input_close FROM model_pricing_data WHERE model_name = $1 ORDER BY timestamp DESC LIMIT 1),
+						(SELECT input_close FROM model_pricing_data WHERE model_name = 'default' ORDER BY timestamp DESC LIMIT 1)
 					) as input_price,
 					COALESCE(
-						(SELECT avg_output_price_tokens FROM average_model_costs WHERE model_name = $1),
-						(SELECT avg_output_price_tokens FROM average_model_costs WHERE model_name = 'default')
+						(SELECT output_close FROM model_pricing_data WHERE model_name = $1 ORDER BY timestamp DESC LIMIT 1),
+						(SELECT output_close FROM model_pricing_data WHERE model_name = 'default' ORDER BY timestamp DESC LIMIT 1)
 					) as output_price`,
 					modelName,
 				).Scan(&inputPrice, &outputPrice)

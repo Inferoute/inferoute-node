@@ -23,7 +23,7 @@ cockroach sql --insecure --host=localhost --database=inferoute < schema.sql || h
 
 # Apply seed data
 echo -e "${GREEN}Applying seed data...${NC}"
-cockroach sql --insecure --host=localhost --database=inferoute < seed_large.sql || handle_error "Failed to apply seed data"
+cockroach sql --insecure --host=localhost --database=inferoute < seed.sql || handle_error "Failed to apply seed data"
 
 echo -e "${GREEN}Database reset and seeded successfully!${NC}"
 
