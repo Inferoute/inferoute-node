@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -30,22 +31,39 @@ func (s *Service) GetModelPrices(ctx context.Context, models []string) (*GetPric
 	// Get default prices first
 	var defaultPricing ModelPricing
 	err := s.db.QueryRowContext(ctx,
-		`SELECT model_name, avg_input_price_tokens, avg_output_price_tokens, sample_size 
-		FROM average_model_costs WHERE model_name = 'default'`).
+		`SELECT model_name, input_close, output_close, 1 as sample_size 
+		FROM model_pricing_data 
+		WHERE model_name = 'default' 
+		ORDER BY timestamp DESC 
+		LIMIT 1`).
 		Scan(&defaultPricing.ModelName, &defaultPricing.AvgInputPrice, &defaultPricing.AvgOutputPrice, &defaultPricing.SampleSize)
 	if err != nil {
 		s.logger.Error("Failed to get default pricing: %v", err)
 		return nil, fmt.Errorf("failed to get default pricing: %v", err)
 	}
 
+	// Normalize model names by removing ":latest" suffix if present
+	normalizedModels := make([]string, len(models))
+	for i, model := range models {
+		normalizedModels[i] = normalizeModelName(model)
+	}
+
 	// Add 'default' to the list of models to query
-	allModels := append(models, "default")
+	allModels := append(normalizedModels, "default")
 
 	// Query for all requested models
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT model_name, avg_input_price_tokens, avg_output_price_tokens, sample_size 
-		FROM average_model_costs 
-		WHERE model_name = ANY($1)`, pq.Array(allModels))
+		`WITH latest_pricing AS (
+			SELECT DISTINCT ON (model_name) 
+				model_name, 
+				input_close as avg_input_price, 
+				output_close as avg_output_price,
+				1 as sample_size
+			FROM model_pricing_data
+			WHERE model_name = ANY($1)
+			ORDER BY model_name, timestamp DESC
+		)
+		SELECT * FROM latest_pricing`, pq.Array(allModels))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query model prices: %v", err)
 	}
@@ -82,68 +100,6 @@ func (s *Service) GetModelPrices(ctx context.Context, models []string) (*GetPric
 	}
 
 	return response, nil
-}
-
-// UpdateModelCosts updates the average costs for all models and updates default pricing
-func (s *Service) UpdateModelCosts(ctx context.Context) error {
-	// Start a transaction since we'll be doing multiple operations
-	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
-		// First, update individual model costs
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO average_model_costs (model_name, avg_input_price_tokens, avg_output_price_tokens, sample_size)
-			SELECT 
-				model_name,
-				AVG(input_price_tokens) as avg_input_price,
-				AVG(output_price_tokens) as avg_output_price,
-				COUNT(*) as sample_size
-			FROM provider_models
-			WHERE is_active = true
-			GROUP BY model_name
-			ON CONFLICT (model_name) DO UPDATE
-			SET 
-				avg_input_price_tokens = EXCLUDED.avg_input_price_tokens,
-				avg_output_price_tokens = EXCLUDED.avg_output_price_tokens,
-				sample_size = EXCLUDED.sample_size,
-				updated_at = CURRENT_TIMESTAMP`)
-		if err != nil {
-			s.logger.Error("Failed to update model costs: %v", err)
-			return fmt.Errorf("failed to update model costs: %v", err)
-		}
-
-		// Then, update the default pricing based on average of all models (excluding the default entry)
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO average_model_costs (
-				model_name, 
-				avg_input_price_tokens, 
-				avg_output_price_tokens, 
-				sample_size
-			)
-			SELECT 
-				'default' as model_name,
-				AVG(avg_input_price_tokens) as avg_input_price,
-				AVG(avg_output_price_tokens) as avg_output_price,
-				SUM(sample_size) as sample_size
-			FROM average_model_costs
-			WHERE model_name != 'default'
-			ON CONFLICT (model_name) DO UPDATE
-			SET 
-				avg_input_price_tokens = EXCLUDED.avg_input_price_tokens,
-				avg_output_price_tokens = EXCLUDED.avg_output_price_tokens,
-				sample_size = EXCLUDED.sample_size,
-				updated_at = CURRENT_TIMESTAMP`)
-		if err != nil {
-			s.logger.Error("Failed to update default pricing: %v", err)
-			return fmt.Errorf("failed to update default pricing: %v", err)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to update model costs: %v", err)
-	}
-
-	return nil
 }
 
 // UpdateModelPricingData collects and stores pricing data for candlestick charts
@@ -190,7 +146,9 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 			s.logger.Error("Failed to scan model name: %v", err)
 			return 0, fmt.Errorf("failed to scan model name: %v", err)
 		}
-		modelNames = append(modelNames, modelName)
+		// Normalize model name by removing ":latest" suffix if present
+		normalizedModelName := normalizeModelName(modelName)
+		modelNames = append(modelNames, normalizedModelName)
 	}
 
 	// Count of models processed
@@ -229,9 +187,10 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 			}
 
 			// Get current pricing metrics for the model
+			// We need to query with both the normalized model name and with ":latest" suffix
 			var inputHigh, inputLow, inputClose, outputHigh, outputLow, outputClose float64
 
-			// Calculate from provider_models
+			// First try with the normalized model name
 			err = tx.QueryRowContext(ctx, `
 				SELECT 
 					MAX(input_price_tokens), 
@@ -241,8 +200,8 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 					MIN(output_price_tokens), 
 					AVG(output_price_tokens)
 				FROM provider_models 
-				WHERE model_name = $1 AND is_active = true`,
-				modelName).
+				WHERE (model_name = $1 OR model_name = $2) AND is_active = true`,
+				modelName, modelName+":latest").
 				Scan(&inputHigh, &inputLow, &inputClose, &outputHigh, &outputLow, &outputClose)
 
 			if err != nil {
@@ -261,17 +220,18 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 			}
 
 			// Get volume data from transactions table
+			// We need to query with both the normalized model name and with ":latest" suffix
 			var volumeInput, volumeOutput int
 			err = tx.QueryRowContext(ctx, `
 				SELECT 
 					COALESCE(SUM(total_input_tokens), 0),
 					COALESCE(SUM(total_output_tokens), 0)
 				FROM transactions 
-				WHERE model_name = $1 
+				WHERE (model_name = $1 OR model_name = $2)
 				AND status = 'completed' 
-				AND updated_at > $2 
-				AND updated_at <= $3`,
-				modelName, lastProcessedTime, currentTime).
+				AND updated_at > $3 
+				AND updated_at <= $4`,
+				modelName, modelName+":latest", lastProcessedTime, currentTime).
 				Scan(&volumeInput, &volumeOutput)
 
 			if err != nil && err != sql.ErrNoRows {
@@ -400,6 +360,15 @@ func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
 	return processedCount, nil
 }
 
+// Helper function to normalize model names by removing ":latest" suffix if present
+func normalizeModelName(modelName string) string {
+	const latestSuffix = ":latest"
+	if strings.HasSuffix(modelName, latestSuffix) {
+		return modelName[:len(modelName)-len(latestSuffix)]
+	}
+	return modelName
+}
+
 // Helper function to calculate average of a slice of float64
 func calculateAverage(values []float64) float64 {
 	if len(values) == 0 {
@@ -420,6 +389,9 @@ func (s *Service) GetModelPricingData(ctx context.Context, modelName string, lim
 		limit = 60 // Default to 1 hour of data (assuming 1-minute intervals)
 	}
 
+	// Normalize model name by removing ":latest" suffix if present
+	normalizedModelName := normalizeModelName(modelName)
+
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT 
 			model_name, timestamp,
@@ -430,11 +402,11 @@ func (s *Service) GetModelPricingData(ctx context.Context, modelName string, lim
 		WHERE model_name = $1
 		ORDER BY timestamp DESC
 		LIMIT $2`,
-		modelName, limit)
+		normalizedModelName, limit)
 
 	if err != nil {
-		s.logger.Error("Failed to query pricing data for model %s: %v", modelName, err)
-		return nil, fmt.Errorf("failed to query pricing data for model %s: %v", modelName, err)
+		s.logger.Error("Failed to query pricing data for model %s: %v", normalizedModelName, err)
+		return nil, fmt.Errorf("failed to query pricing data for model %s: %v", normalizedModelName, err)
 	}
 	defer rows.Close()
 

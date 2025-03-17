@@ -34,30 +34,6 @@ func (h *Handler) GetModelPrices(c echo.Context) error {
 	return c.JSON(http.StatusOK, response)
 }
 
-// UpdateModelCosts handles the request to update average costs for all models
-func (h *Handler) UpdateModelCosts(c echo.Context) error {
-	if err := h.service.UpdateModelCosts(c.Request().Context()); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, UpdateCostsResponse{
-		Status: "Model costs updated successfully",
-	})
-}
-
-// UpdateModelPricingData handles the request to update model pricing data for candlestick charts
-func (h *Handler) UpdateModelPricingData(c echo.Context) error {
-	count, err := h.service.UpdateModelPricingData(c.Request().Context())
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, UpdatePricingDataResponse{
-		Status: "Model pricing data updated successfully",
-		Count:  count,
-	})
-}
-
 // GetModelPricingData handles the request to get model pricing data for candlestick charts
 func (h *Handler) GetModelPricingData(c echo.Context) error {
 	modelName := c.Param("model_name")

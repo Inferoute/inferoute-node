@@ -509,8 +509,8 @@ The service has several core components:
 	- For each health update:
 		- Updates existing models' metadata without changing pricing
 		- For new models:
-			1. Checks average_model_costs table for model-specific pricing
-			2. Falls back to default pricing from average_model_costs if model-specific pricing not found
+			1. Checks model_pricing_data table for model-specific pricing
+			2. Falls back to default pricing from model_pricing_data if model-specific pricing not found
 		- Marks database models as inactive if not in health update
 		- Updates provider health status (green/orange/red):
 			- Green: All registered models are available
@@ -607,6 +607,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
          "model_prices": [
            {
              "model_name": "llama2",
+
              "avg_input_price": 0.0002,
              "avg_output_price": 0.0003,
              "sample_size": 15
@@ -627,24 +628,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
        - Sample size indicates number of providers used in average
        - Used by Provider Health service when adding new models during health updates
        
-  2. **Update Model Costs** - Internal API
-     - Endpoint: `POST /api/model-pricing/update-costs`
-     - Description: Recalculates average prices for all models based on current provider prices and updates default pricing
-     - Authentication: Requires X-Internal-Key header
-     - Response:
-       ```json
-       {
-         "status": "Model costs updated successfully"
-       }
-       ```
-     - Notes:
-       - Only considers active provider models
-       - Updates sample size for each model
-       - Updates default pricing based on global averages
-       - Typically run weekly via scheduler
-       - Updates average_model_costs table which is used as reference for new model pricing
-
-  3. **Get Model Pricing Data** - Public API
+  2. **Get Model Pricing Data** - Public API
      - Endpoint: `GET /api/model-pricing/pricing-data/:model_name`
      - Description: Returns time-series pricing data for a specific model in a format suitable for candlestick charts
      - Authentication: Requires Provider API key
@@ -692,22 +676,6 @@ We will need some Cloud cron thing to run the check for stale providers and upda
        - Volume_input represents the sum of input tokens from all transactions for that model
        - Volume_output represents the sum of output tokens from all transactions for that model
 
-  4. **Update Model Pricing Data** - Internal API
-     - Endpoint: `POST /api/model-pricing/update-pricing-data`
-     - Description: Manually triggers the collection and storage of pricing data for all models
-     - Authentication: Requires X-Internal-Key header
-     - Response:
-       ```json
-       {
-         "status": "Model pricing data updated successfully",
-         "count": 12
-       }
-       ```
-     - Notes:
-       - Count indicates the number of models processed
-       - This endpoint is typically not called manually as the service includes a scheduler
-       - Automatically runs every minute via internal scheduler
-
 - **Scheduler:**
   - The service includes an internal scheduler that runs every minute
   - On each run, it collects pricing metrics for all active models:
@@ -723,12 +691,13 @@ We will need some Cloud cron thing to run the check for stale providers and upda
 - **Key Features:**
   - Maintains and auto-updates default pricing for unknown models based on global averages
   - Calculates model-specific averages from active provider models
-  - Tracks sample size for price confidence
+  - Normalizes model names by removing ":latest" suffix for consistent data tracking
+  - Tracks input and output token volumes separately for detailed usage metrics
   - Helps consumers estimate costs before requests
   - Default pricing ensures system can handle requests for new or uncommon models
   - Provides pricing data for Provider Health service when adding new models
   - Collects and stores time-series pricing data for visualization in candlestick charts
-  - Automatic minute-by-minute data collection via internal scheduler
+  - Fully automatic minute-by-minute data collection via internal scheduler without requiring API calls
 
 ## 10.  CockroachDB - DONE!!!!
 
@@ -739,7 +708,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
 -  **Role:** Capeture and store logs from all of our services.
 
 Use OpenTelemetry to capture logs from all of our services and send to datadog
-OR use this - https://www.multiplayer.app/docs/  Auto-documenttion and provides network map
+OR use this - https://www.multiplayer.app/docs/  Auto-documentation and provides network map
 
 
 ## 11. Scheduling Service:

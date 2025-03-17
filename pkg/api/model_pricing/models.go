@@ -20,11 +20,6 @@ type GetPricesResponse struct {
 	ModelPrices []ModelPricing `json:"model_prices"`
 }
 
-// UpdateCostsResponse represents the response for updating model costs
-type UpdateCostsResponse struct {
-	Status string `json:"status"`
-}
-
 // ModelPricingData represents candlestick chart data for database operations
 type ModelPricingData struct {
 	ID           int64     `json:"id"`
@@ -58,12 +53,6 @@ type ModelPricingDataResponse struct {
 	OutputClose  float64 `json:"output_close"`
 	VolumeInput  int     `json:"volume_input"`
 	VolumeOutput int     `json:"volume_output"`
-}
-
-// UpdatePricingDataResponse represents the response for updating model pricing data
-type UpdatePricingDataResponse struct {
-	Status string `json:"status"`
-	Count  int    `json:"count"`
 }
 
 // GetPricingDataRequest represents the request for getting model pricing data

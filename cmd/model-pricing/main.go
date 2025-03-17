@@ -61,8 +61,7 @@ func main() {
 			logger.Info("Provider Auth Middleware - Processing request to: %s", c.Request().URL.Path)
 
 			// Skip provider auth for internal routes
-			if strings.HasSuffix(c.Request().URL.Path, "/update-costs") ||
-				strings.HasSuffix(c.Request().URL.Path, "/update-pricing-data") {
+			if strings.HasSuffix(c.Request().URL.Path, "/update-pricing-data") {
 				logger.Info("Provider Auth Middleware - Skipping for internal route")
 				return next(c)
 			}
@@ -110,15 +109,7 @@ func main() {
 
 	logger.Info("Registering routes")
 
-	// Register internal routes first
-	internalGroup := e.Group("/api/model-pricing")
-	internalGroup.Use(common.InternalOnly())
-	logger.Info("Registering internal route: POST /api/model-pricing/update-costs")
-	internalGroup.POST("/update-costs", handler.UpdateModelCosts)
-	logger.Info("Registering internal route: POST /api/model-pricing/update-pricing-data")
-	internalGroup.POST("/update-pricing-data", handler.UpdateModelPricingData)
-
-	// Then register public routes
+	// Register public routes
 	publicGroup := e.Group("/api/model-pricing")
 	logger.Info("Registering public route: POST /api/model-pricing/get-prices")
 	publicGroup.POST("/get-prices", handler.GetModelPrices)
