@@ -1,5 +1,23 @@
 version: '3.8'
 
+# Common environment variables for all services
+x-common-variables: &common-variables
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  SERVER_HOST: 0.0.0.0
+  DATABASE_HOST: cockroachdb
+  DATABASE_PORT: ${DATABASE_PORT:-26257}
+  DATABASE_USER: ${DATABASE_USER:-root}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD:-}
+  DATABASE_DBNAME: ${DATABASE_DBNAME:-inferoute}
+  DATABASE_SSLMODE: ${DATABASE_SSLMODE:-disable}
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+  RABBITMQ_USER: ${RABBITMQ_USER:-inferoute}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-Nightshade900!}
+  RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+  INTERNAL_API_KEY: ${INTERNAL_API_KEY:-klondikee}
+  INTERNAL_NETWORK_CIDR: ${INTERNAL_NETWORK_CIDR:-172.16.0.0/12}
+
 services:
   nginx:
     build:
@@ -13,7 +31,7 @@ services:
       - provider-management
       - provider-communication
       - provider-health
-      - general-api
+      - model-pricing
     networks:
       - inferoute-network
     restart: unless-stopped
@@ -29,6 +47,12 @@ services:
       dockerfile: docker/Dockerfile.orchestrator
     expose:
       - "8080"
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8080
+    depends_on:
+      - cockroachdb
+      - rabbitmq
     networks:
       - inferoute-network
     restart: unless-stopped
@@ -39,6 +63,13 @@ services:
       dockerfile: docker/Dockerfile.auth
     expose:
       - "8081"
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8081
+      AUTH_HMACSECRET: ${AUTH_HMACSECRET:-your-hmac-secret-key}
+      AUTH_TOKENDURATION: ${AUTH_TOKENDURATION:-60}
+    depends_on:
+      - cockroachdb
     networks:
       - inferoute-network
     restart: unless-stopped
@@ -49,6 +80,12 @@ services:
       dockerfile: docker/Dockerfile.provider-management
     expose:
       - "8082"
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8082
+    depends_on:
+      - cockroachdb
+      - rabbitmq
     networks:
       - inferoute-network
     restart: unless-stopped
@@ -59,6 +96,12 @@ services:
       dockerfile: docker/Dockerfile.provider-communication
     expose:
       - "8083"
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8083
+    depends_on:
+      - cockroachdb
+      - rabbitmq
     networks:
       - inferoute-network
     restart: unless-stopped
@@ -69,16 +112,12 @@ services:
       dockerfile: docker/Dockerfile.provider-health
     expose:
       - "8084"
-    networks:
-      - inferoute-network
-    restart: unless-stopped
-
-  general-api:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.general-api
-    expose:
-      - "8085"
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8084
+    depends_on:
+      - cockroachdb
+      - rabbitmq
     networks:
       - inferoute-network
     restart: unless-stopped
@@ -86,19 +125,62 @@ services:
   model-pricing:
     build:
       context: .
-      dockerfile: docker/Dockerfile
-      args:
-        SERVICE_NAME: model-pricing
+      dockerfile: docker/Dockerfile.model-pricing
+    expose:
+      - "8085"
     environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - PORT=8085
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
-    ports:
-      - "8085:8085"
+      <<: *common-variables
+      SERVER_PORT: 8085
     depends_on:
       - cockroachdb
     networks:
       - inferoute-network
+    restart: unless-stopped
+
+  # CockroachDB container
+  cockroachdb:
+    image: cockroachdb/cockroach:v23.1.11
+    command: start-single-node --insecure
+    ports:
+      - "26257:26257"  # SQL port
+      - "8080:8080"    # UI port
+    volumes:
+      - cockroach-data:/cockroach/cockroach-data
+    networks:
+      - inferoute-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RabbitMQ container
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    ports:
+      - "5672:5672"    # AMQP port
+      - "15672:15672"  # Management UI port
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-inferoute}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-Nightshade900!}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./docker/files/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./docker/files/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    networks:
+      - inferoute-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  cockroach-data:
+  rabbitmq-data:
 
 networks:
   inferoute-network:

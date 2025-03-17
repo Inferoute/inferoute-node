@@ -17,6 +17,7 @@ DROP TABLE IF EXISTS consumer_models;
 DROP TABLE IF EXISTS user_settings;
 DROP TABLE IF EXISTS provider_cheating_incidents;
 DROP TABLE IF EXISTS average_model_costs;
+DROP TABLE IF EXISTS model_pricing_data;
 
 -- Create system_settings table
 CREATE TABLE IF NOT EXISTS system_settings (
@@ -26,6 +27,12 @@ CREATE TABLE IF NOT EXISTS system_settings (
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp()
 );
+
+-- Insert default system settings
+INSERT INTO system_settings (setting_key, setting_value, description)
+VALUES 
+('last_processed_transaction_time', '1970-01-01T00:00:00Z', 'Timestamp of the last processed transaction for model pricing data')
+ON CONFLICT (setting_key) DO NOTHING;
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
@@ -226,6 +233,41 @@ CREATE TABLE IF NOT EXISTS average_model_costs (
 INSERT INTO average_model_costs (model_name, avg_input_price_tokens, avg_output_price_tokens, sample_size)
 VALUES ('default', 0.0005, 0.0005, 1)
 ON CONFLICT (model_name) DO NOTHING;
+
+-- Create model_pricing_data table for candlestick chart data
+CREATE TABLE IF NOT EXISTS model_pricing_data (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    model_name STRING NOT NULL,
+    timestamp TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+    input_open DECIMAL(18,8) NOT NULL,
+    input_high DECIMAL(18,8) NOT NULL,
+    input_low DECIMAL(18,8) NOT NULL,
+    input_close DECIMAL(18,8) NOT NULL,
+    output_open DECIMAL(18,8) NOT NULL,
+    output_high DECIMAL(18,8) NOT NULL,
+    output_low DECIMAL(18,8) NOT NULL,
+    output_close DECIMAL(18,8) NOT NULL,
+    volume_input INTEGER NOT NULL DEFAULT 0,
+    volume_output INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    INDEX (model_name, timestamp DESC)
+);
+
+-- Insert default model pricing data
+INSERT INTO model_pricing_data (
+    model_name, timestamp, 
+    input_open, input_high, input_low, input_close,
+    output_open, output_high, output_low, output_close,
+    volume_input, volume_output
+)
+VALUES (
+    'default', '1942-01-01 20:42:42', 
+    0.00050000, 0.00050000, 0.00050000, 0.00050000,
+    0.00050000, 0.00050000, 0.00050000, 0.00050000,
+    42000, 42000
+)
+ON CONFLICT DO NOTHING;
 
 -- Create triggers to update updated_at timestamps
 CREATE OR REPLACE FUNCTION update_updated_at()

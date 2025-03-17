@@ -2,6 +2,7 @@ package model_pricing
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v4"
 )
@@ -42,4 +43,42 @@ func (h *Handler) UpdateModelCosts(c echo.Context) error {
 	return c.JSON(http.StatusOK, UpdateCostsResponse{
 		Status: "Model costs updated successfully",
 	})
+}
+
+// UpdateModelPricingData handles the request to update model pricing data for candlestick charts
+func (h *Handler) UpdateModelPricingData(c echo.Context) error {
+	count, err := h.service.UpdateModelPricingData(c.Request().Context())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, UpdatePricingDataResponse{
+		Status: "Model pricing data updated successfully",
+		Count:  count,
+	})
+}
+
+// GetModelPricingData handles the request to get model pricing data for candlestick charts
+func (h *Handler) GetModelPricingData(c echo.Context) error {
+	modelName := c.Param("model_name")
+	if modelName == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "model_name is required")
+	}
+
+	limitStr := c.QueryParam("limit")
+	limit := 60 // Default to 60 minutes of data
+	if limitStr != "" {
+		var err error
+		limit, err = strconv.Atoi(limitStr)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid limit parameter")
+		}
+	}
+
+	response, err := h.service.GetModelPricingData(c.Request().Context(), modelName, limit)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, response)
 }

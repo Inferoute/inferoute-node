@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/lib/pq"
 	"github.com/sentnl/inferoute-node/internal/db"
@@ -143,4 +144,319 @@ func (s *Service) UpdateModelCosts(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// UpdateModelPricingData collects and stores pricing data for candlestick charts
+// This function is designed to run every minute
+func (s *Service) UpdateModelPricingData(ctx context.Context) (int, error) {
+	s.logger.Info("Starting to update model pricing data for candlestick charts")
+
+	// Get the last processed transaction timestamp
+	var lastProcessedTime time.Time
+	err := s.db.QueryRowContext(ctx, `
+		SELECT setting_value 
+		FROM system_settings 
+		WHERE setting_key = 'last_processed_transaction_time'`).
+		Scan(&lastProcessedTime)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// If no record exists, use a very old timestamp
+			lastProcessedTime = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+		} else {
+			s.logger.Error("Failed to get last processed transaction time: %v", err)
+			return 0, fmt.Errorf("failed to get last processed transaction time: %v", err)
+		}
+	}
+
+	// Get current time to use as the new last processed time
+	currentTime := time.Now()
+
+	// Get all unique model names from provider_models
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT model_name 
+		FROM provider_models 
+		WHERE is_active = true`)
+	if err != nil {
+		s.logger.Error("Failed to query unique model names: %v", err)
+		return 0, fmt.Errorf("failed to query unique model names: %v", err)
+	}
+	defer rows.Close()
+
+	// Collect all model names
+	var modelNames []string
+	for rows.Next() {
+		var modelName string
+		if err := rows.Scan(&modelName); err != nil {
+			s.logger.Error("Failed to scan model name: %v", err)
+			return 0, fmt.Errorf("failed to scan model name: %v", err)
+		}
+		modelNames = append(modelNames, modelName)
+	}
+
+	// Count of models processed
+	processedCount := 0
+
+	// Collect metrics for default calculation
+	var inputHighs, inputLows, inputCloses []float64
+	var outputHighs, outputLows, outputCloses []float64
+	var totalVolumeInput, totalVolumeOutput int
+
+	// Process each model
+	for _, modelName := range modelNames {
+		err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
+			// Get the previous entry for this model to use as input_open
+			var prevInputClose, prevOutputClose float64
+			var hasLastEntry bool
+
+			err := tx.QueryRowContext(ctx, `
+				SELECT input_close, output_close 
+				FROM model_pricing_data 
+				WHERE model_name = $1 
+				ORDER BY timestamp DESC 
+				LIMIT 1`,
+				modelName).Scan(&prevInputClose, &prevOutputClose)
+
+			if err != nil {
+				if err == sql.ErrNoRows {
+					// No previous entry, we'll use current averages for open values
+					hasLastEntry = false
+				} else {
+					s.logger.Error("Failed to get previous pricing data for model %s: %v", modelName, err)
+					return fmt.Errorf("failed to get previous pricing data for model %s: %v", modelName, err)
+				}
+			} else {
+				hasLastEntry = true
+			}
+
+			// Get current pricing metrics for the model
+			var inputHigh, inputLow, inputClose, outputHigh, outputLow, outputClose float64
+
+			// Calculate from provider_models
+			err = tx.QueryRowContext(ctx, `
+				SELECT 
+					MAX(input_price_tokens), 
+					MIN(input_price_tokens), 
+					AVG(input_price_tokens),
+					MAX(output_price_tokens), 
+					MIN(output_price_tokens), 
+					AVG(output_price_tokens)
+				FROM provider_models 
+				WHERE model_name = $1 AND is_active = true`,
+				modelName).
+				Scan(&inputHigh, &inputLow, &inputClose, &outputHigh, &outputLow, &outputClose)
+
+			if err != nil {
+				if err == sql.ErrNoRows {
+					s.logger.Info("No active providers for model %s, skipping", modelName)
+					return nil
+				}
+				s.logger.Error("Failed to calculate pricing metrics for model %s: %v", modelName, err)
+				return fmt.Errorf("failed to calculate pricing metrics for model %s: %v", modelName, err)
+			}
+
+			// If we don't have a previous entry, use current values for open
+			if !hasLastEntry {
+				prevInputClose = inputClose
+				prevOutputClose = outputClose
+			}
+
+			// Get volume data from transactions table
+			var volumeInput, volumeOutput int
+			err = tx.QueryRowContext(ctx, `
+				SELECT 
+					COALESCE(SUM(total_input_tokens), 0),
+					COALESCE(SUM(total_output_tokens), 0)
+				FROM transactions 
+				WHERE model_name = $1 
+				AND status = 'completed' 
+				AND updated_at > $2 
+				AND updated_at <= $3`,
+				modelName, lastProcessedTime, currentTime).
+				Scan(&volumeInput, &volumeOutput)
+
+			if err != nil && err != sql.ErrNoRows {
+				s.logger.Error("Failed to get volume data for model %s: %v", modelName, err)
+				return fmt.Errorf("failed to get volume data for model %s: %v", modelName, err)
+			}
+
+			// Insert the new pricing data
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO model_pricing_data (
+					model_name, timestamp,
+					input_open, input_high, input_low, input_close,
+					output_open, output_high, output_low, output_close,
+					volume_input, volume_output
+				) VALUES (
+					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+				)`,
+				modelName, currentTime,
+				prevInputClose, inputHigh, inputLow, inputClose,
+				prevOutputClose, outputHigh, outputLow, outputClose,
+				volumeInput, volumeOutput)
+
+			if err != nil {
+				s.logger.Error("Failed to insert pricing data for model %s: %v", modelName, err)
+				return fmt.Errorf("failed to insert pricing data for model %s: %v", modelName, err)
+			}
+
+			// Collect metrics for default calculation
+			inputHighs = append(inputHighs, inputHigh)
+			inputLows = append(inputLows, inputLow)
+			inputCloses = append(inputCloses, inputClose)
+			outputHighs = append(outputHighs, outputHigh)
+			outputLows = append(outputLows, outputLow)
+			outputCloses = append(outputCloses, outputClose)
+			totalVolumeInput += volumeInput
+			totalVolumeOutput += volumeOutput
+
+			return nil
+		})
+
+		if err != nil {
+			s.logger.Error("Failed to process model %s: %v", modelName, err)
+			continue
+		}
+
+		processedCount++
+	}
+
+	// Update default entry based on current batch averages
+	if len(inputCloses) > 0 {
+		err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
+			// Calculate averages for default entry
+			var defaultInputHigh, defaultInputLow, defaultInputClose float64
+			var defaultOutputHigh, defaultOutputLow, defaultOutputClose float64
+			var defaultPrevInputClose, defaultPrevOutputClose float64
+
+			// Calculate averages from current batch
+			defaultInputHigh = calculateAverage(inputHighs)
+			defaultInputLow = calculateAverage(inputLows)
+			defaultInputClose = calculateAverage(inputCloses)
+			defaultOutputHigh = calculateAverage(outputHighs)
+			defaultOutputLow = calculateAverage(outputLows)
+			defaultOutputClose = calculateAverage(outputCloses)
+
+			// Get previous default entry
+			err := tx.QueryRowContext(ctx, `
+				SELECT input_close, output_close 
+				FROM model_pricing_data 
+				WHERE model_name = 'default' 
+				ORDER BY timestamp DESC 
+				LIMIT 1`).Scan(&defaultPrevInputClose, &defaultPrevOutputClose)
+
+			if err != nil {
+				if err == sql.ErrNoRows {
+					// No previous entry, use current values
+					defaultPrevInputClose = defaultInputClose
+					defaultPrevOutputClose = defaultOutputClose
+				} else {
+					s.logger.Error("Failed to get previous default pricing data: %v", err)
+					return fmt.Errorf("failed to get previous default pricing data: %v", err)
+				}
+			}
+
+			// Insert default entry
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO model_pricing_data (
+					model_name, timestamp,
+					input_open, input_high, input_low, input_close,
+					output_open, output_high, output_low, output_close,
+					volume_input, volume_output
+				) VALUES (
+					'default', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+				)`,
+				currentTime,
+				defaultPrevInputClose, defaultInputHigh, defaultInputLow, defaultInputClose,
+				defaultPrevOutputClose, defaultOutputHigh, defaultOutputLow, defaultOutputClose,
+				totalVolumeInput, totalVolumeOutput)
+
+			if err != nil {
+				s.logger.Error("Failed to insert default pricing data: %v", err)
+				return fmt.Errorf("failed to insert default pricing data: %v", err)
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			s.logger.Error("Failed to update default pricing data: %v", err)
+		} else {
+			processedCount++ // Count default as processed
+			s.logger.Info("Updated default pricing data based on current batch averages")
+		}
+	}
+
+	// Update the last processed transaction time
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE system_settings 
+		SET setting_value = $1, updated_at = NOW() 
+		WHERE setting_key = 'last_processed_transaction_time'`,
+		currentTime.Format(time.RFC3339))
+	if err != nil {
+		s.logger.Error("Failed to update last processed transaction time: %v", err)
+	}
+
+	s.logger.Info("Successfully updated pricing data for %d models", processedCount)
+	return processedCount, nil
+}
+
+// Helper function to calculate average of a slice of float64
+func calculateAverage(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+
+	var sum float64
+	for _, v := range values {
+		sum += v
+	}
+
+	return sum / float64(len(values))
+}
+
+// GetModelPricingData retrieves candlestick chart data for a specific model
+func (s *Service) GetModelPricingData(ctx context.Context, modelName string, limit int) (*GetPricingDataResponse, error) {
+	if limit <= 0 {
+		limit = 60 // Default to 1 hour of data (assuming 1-minute intervals)
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT 
+			model_name, timestamp,
+			input_open, input_high, input_low, input_close,
+			output_open, output_high, output_low, output_close,
+			volume_input, volume_output
+		FROM model_pricing_data
+		WHERE model_name = $1
+		ORDER BY timestamp DESC
+		LIMIT $2`,
+		modelName, limit)
+
+	if err != nil {
+		s.logger.Error("Failed to query pricing data for model %s: %v", modelName, err)
+		return nil, fmt.Errorf("failed to query pricing data for model %s: %v", modelName, err)
+	}
+	defer rows.Close()
+
+	var data []ModelPricingDataResponse
+	for rows.Next() {
+		var item ModelPricingDataResponse
+		var timestamp time.Time
+
+		err := rows.Scan(
+			&item.ModelName, &timestamp,
+			&item.InputOpen, &item.InputHigh, &item.InputLow, &item.InputClose,
+			&item.OutputOpen, &item.OutputHigh, &item.OutputLow, &item.OutputClose,
+			&item.VolumeInput, &item.VolumeOutput)
+
+		if err != nil {
+			s.logger.Error("Failed to scan pricing data: %v", err)
+			return nil, fmt.Errorf("failed to scan pricing data: %v", err)
+		}
+
+		item.Timestamp = timestamp.Format(time.RFC3339)
+		data = append(data, item)
+	}
+
+	return &GetPricingDataResponse{Data: data}, nil
 }

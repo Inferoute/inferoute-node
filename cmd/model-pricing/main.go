@@ -61,7 +61,8 @@ func main() {
 			logger.Info("Provider Auth Middleware - Processing request to: %s", c.Request().URL.Path)
 
 			// Skip provider auth for internal routes
-			if strings.HasSuffix(c.Request().URL.Path, "/update-costs") {
+			if strings.HasSuffix(c.Request().URL.Path, "/update-costs") ||
+				strings.HasSuffix(c.Request().URL.Path, "/update-pricing-data") {
 				logger.Info("Provider Auth Middleware - Skipping for internal route")
 				return next(c)
 			}
@@ -114,11 +115,52 @@ func main() {
 	internalGroup.Use(common.InternalOnly())
 	logger.Info("Registering internal route: POST /api/model-pricing/update-costs")
 	internalGroup.POST("/update-costs", handler.UpdateModelCosts)
+	logger.Info("Registering internal route: POST /api/model-pricing/update-pricing-data")
+	internalGroup.POST("/update-pricing-data", handler.UpdateModelPricingData)
 
 	// Then register public routes
 	publicGroup := e.Group("/api/model-pricing")
 	logger.Info("Registering public route: POST /api/model-pricing/get-prices")
 	publicGroup.POST("/get-prices", handler.GetModelPrices)
+	logger.Info("Registering public route: GET /api/model-pricing/pricing-data/:model_name")
+	publicGroup.GET("/pricing-data/:model_name", handler.GetModelPricingData)
+
+	// Start the scheduler to update pricing data every minute
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Run the pricing data update immediately on startup
+	go func() {
+		logger.Info("Running initial pricing data update")
+		count, err := service.UpdateModelPricingData(ctx)
+		if err != nil {
+			logger.Error("Failed to update pricing data: %v", err)
+		} else {
+			logger.Info("Initial pricing data update completed for %d models", count)
+		}
+	}()
+
+	// Start the scheduler
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				logger.Info("Running scheduled pricing data update")
+				count, err := service.UpdateModelPricingData(ctx)
+				if err != nil {
+					logger.Error("Failed to update pricing data: %v", err)
+				} else {
+					logger.Info("Scheduled pricing data update completed for %d models", count)
+				}
+			case <-ctx.Done():
+				logger.Info("Stopping pricing data scheduler")
+				return
+			}
+		}
+	}()
 
 	// Start server
 	go func() {
@@ -139,7 +181,7 @@ func main() {
 	<-quit
 
 	// Graceful shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := e.Shutdown(ctx); err != nil {
 		logger.Error("Failed to shutdown server: %v", err)
