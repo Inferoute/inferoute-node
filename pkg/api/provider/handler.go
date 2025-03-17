@@ -381,7 +381,9 @@ func (h *Handler) GetProviderHealth(c echo.Context) error {
 			p.tier,
 			p.is_available,
 			COALESCE(lh.latency_ms, 0) as latency_ms,
-			COALESCE(lh.health_check_time, NOW()) as last_health_check
+			COALESCE(lh.health_check_time, NOW()) as last_health_check,
+			p.provider_type,
+			p.paused
 		FROM providers p
 		JOIN users u ON u.id = p.user_id
 		LEFT JOIN latest_health lh ON lh.provider_id = p.id
@@ -396,6 +398,8 @@ func (h *Handler) GetProviderHealth(c echo.Context) error {
 		&response.IsAvailable,
 		&response.LatencyMs,
 		&response.LastHealthCheck,
+		&response.ProviderType,
+		&response.Paused,
 	)
 
 	if err != nil {

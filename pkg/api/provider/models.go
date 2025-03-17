@@ -146,4 +146,6 @@ type GetProviderHealthResponse struct {
 	IsAvailable     bool      `json:"is_available"`
 	LatencyMs       int       `json:"latency_ms"`
 	LastHealthCheck time.Time `json:"last_health_check"`
+	ProviderType    string    `json:"provider_type"`
+	Paused          bool      `json:"paused"`
 }
