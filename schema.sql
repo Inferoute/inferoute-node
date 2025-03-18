@@ -100,13 +100,15 @@ CREATE TABLE IF NOT EXISTS api_keys (
     provider_id UUID REFERENCES providers(id) ON DELETE CASCADE,
     consumer_id UUID REFERENCES consumers(id) ON DELETE CASCADE,
     api_key STRING UNIQUE NOT NULL,
+    lookup_key STRING(8),
     description STRING,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp(),
     CHECK ((provider_id IS NULL AND consumer_id IS NOT NULL) OR (provider_id IS NOT NULL AND consumer_id IS NULL)),
     INDEX (provider_id),
-    INDEX (consumer_id)
+    INDEX (consumer_id),
+    INDEX (lookup_key)
 );
 
 -- Balances table (for tracking user funds)

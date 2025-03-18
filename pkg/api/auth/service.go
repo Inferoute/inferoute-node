@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sentnl/inferoute-node/internal/db"
 	"github.com/sentnl/inferoute-node/pkg/common"
+	"github.com/sentnl/inferoute-node/pkg/common/apikey"
 )
 
 // Config holds service configuration
@@ -69,107 +70,77 @@ func (s *Service) CreateUser(ctx context.Context, req CreateUserRequest) (*Creat
 
 // ValidateAPIKey validates an API key and returns user information
 func (s *Service) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest) (*ValidateAPIKeyResponse, error) {
-	var response ValidateAPIKeyResponse
+	s.logger.Info("Starting API key validation for key length: %d", len(req.APIKey))
 
-	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
-		// First try to find the API key in the api_keys table
-		var apiKey APIKey
-		err := tx.QueryRowContext(ctx,
-			`SELECT id, provider_id, consumer_id, is_active 
-			FROM api_keys 
-			WHERE api_key = $1`,
-			req.APIKey,
-		).Scan(&apiKey.ID, &apiKey.ProviderID, &apiKey.ConsumerID, &apiKey.IsActive)
+	// Generate lookup key for fast comparison
+	lookupKey := apikey.GenerateLookupKey(req.APIKey)
+	s.logger.Debug("Generated lookup key: %s", lookupKey)
 
-		if err == sql.ErrNoRows {
-			response = ValidateAPIKeyResponse{Valid: false}
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("error querying API key: %v", err)
-		}
+	// Log connection pool stats
+	stats := s.db.Stats()
+	s.logger.Info("DB Pool Stats - Open: %d, InUse: %d, Idle: %d",
+		stats.OpenConnections,
+		stats.InUse,
+		stats.Idle)
 
-		// API key exists but is not active
-		if !apiKey.IsActive {
-			response = ValidateAPIKeyResponse{Valid: false}
-			return nil
-		}
-
-		// If it's a provider API key
-		if apiKey.ProviderID != nil {
-			var provider Provider
-			var userID uuid.UUID
-			var availableBalance, heldBalance float64
-
-			err = tx.QueryRowContext(ctx,
-				`SELECT p.id, p.user_id, COALESCE(b.available_amount, 0), COALESCE(b.held_amount, 0)
-				FROM providers p
-				JOIN users u ON u.id = p.user_id
-				LEFT JOIN balances b ON b.user_id = p.user_id
-				WHERE p.id = $1`,
-				apiKey.ProviderID,
-			).Scan(&provider.ID, &userID, &availableBalance, &heldBalance)
-
-			if err == sql.ErrNoRows {
-				response = ValidateAPIKeyResponse{Valid: false}
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("error querying provider: %v", err)
-			}
-
-			response = ValidateAPIKeyResponse{
-				Valid:            true,
-				UserID:           userID,
-				ProviderID:       &provider.ID,
-				AvailableBalance: availableBalance,
-				HeldBalance:      heldBalance,
-			}
-			return nil
-		}
-
-		// If it's a consumer API key
-		if apiKey.ConsumerID != nil {
-			var consumer Consumer
-			var userID uuid.UUID
-			var availableBalance, heldBalance float64
-
-			err = tx.QueryRowContext(ctx,
-				`SELECT c.id, c.user_id, COALESCE(b.available_amount, 0), COALESCE(b.held_amount, 0)
-				FROM consumers c
-				JOIN users u ON u.id = c.user_id
-				LEFT JOIN balances b ON b.user_id = c.user_id
-				WHERE c.id = $1`,
-				apiKey.ConsumerID,
-			).Scan(&consumer.ID, &userID, &availableBalance, &heldBalance)
-
-			if err == sql.ErrNoRows {
-				response = ValidateAPIKeyResponse{Valid: false}
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("error querying consumer: %v", err)
-			}
-
-			response = ValidateAPIKeyResponse{
-				Valid:            true,
-				UserID:           userID,
-				ConsumerID:       &consumer.ID,
-				AvailableBalance: availableBalance,
-				HeldBalance:      heldBalance,
-			}
-			return nil
-		}
-
-		// This should never happen as we have a CHECK constraint in the database
-		return fmt.Errorf("API key has neither provider_id nor consumer_id")
-	})
-
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT ak.id, ak.provider_id, ak.consumer_id, ak.api_key, u.id as user_id,
+		COALESCE(b.available_amount, 0) as available_balance,
+		COALESCE(b.held_amount, 0) as held_balance
+		FROM api_keys ak
+		LEFT JOIN providers p ON p.id = ak.provider_id
+		LEFT JOIN consumers c ON c.id = ak.consumer_id
+		JOIN users u ON u.id = COALESCE(p.user_id, c.user_id)
+		LEFT JOIN balances b ON b.user_id = u.id
+		WHERE ak.is_active = true AND ak.lookup_key = $1`,
+		lookupKey)
 	if err != nil {
-		return nil, common.ErrInternalServer(err)
+		s.logger.Error("Database query failed: %v", err)
+		return nil, fmt.Errorf("error querying consumer: %w", err)
+	}
+	defer rows.Close()
+
+	s.logger.Info("Successfully queried API keys table")
+
+	for rows.Next() {
+		var id uuid.UUID
+		var providerID, consumerID *uuid.UUID
+		var bcryptHash string
+		var userID uuid.UUID
+		var availableBalance, heldBalance float64
+
+		if err := rows.Scan(&id, &providerID, &consumerID, &bcryptHash, &userID, &availableBalance, &heldBalance); err != nil {
+			s.logger.Error("Error scanning row: %v", err)
+			continue
+		}
+
+		s.logger.Debug("Comparing API key - Hash length: %d, Format: %s",
+			len(bcryptHash),
+			bcryptHash[:10]+"...")
+
+		if apikey.CompareAPIKey(req.APIKey, bcryptHash) {
+			s.logger.Info("Found matching API key")
+
+			// Determine user type
+			userType := "consumer"
+			if providerID != nil {
+				userType = "provider"
+			}
+
+			return &ValidateAPIKeyResponse{
+				Valid:            true,
+				UserID:           userID,
+				ProviderID:       providerID,
+				ConsumerID:       consumerID,
+				UserType:         userType,
+				AvailableBalance: availableBalance,
+				HeldBalance:      heldBalance,
+			}, nil
+		}
 	}
 
-	return &response, nil
+	s.logger.Info("No matching API key found")
+	return &ValidateAPIKeyResponse{Valid: false}, nil
 }
 
 // HoldDeposit places a hold on a user's balance
@@ -370,85 +341,23 @@ func (s *Service) CreateEntity(ctx context.Context, req CreateEntityRequest) (*C
 
 // CreateAPIKey creates a new API key for a consumer or provider
 func (s *Service) CreateAPIKey(ctx context.Context, req CreateAPIKeyRequest) (*CreateAPIKeyResponse, error) {
-	var response CreateAPIKeyResponse
+	plainTextKey := apikey.GenerateAPIKey()
+	hashedKey := apikey.HashAPIKey(plainTextKey)
 
 	err := s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
-		// Verify user exists
-		var exists bool
-		err := tx.QueryRowContext(ctx,
-			`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`,
-			req.UserID,
-		).Scan(&exists)
-		if err != nil {
-			return fmt.Errorf("error checking user existence: %v", err)
-		}
-		if !exists {
-			return common.ErrNotFound(fmt.Errorf("user not found"))
-		}
-
-		// Verify consumer/provider exists and belongs to user
-		if req.Type == "provider" {
-			if req.ProviderID == nil {
-				return common.ErrInvalidInput(fmt.Errorf("provider_id is required for provider API keys"))
-			}
-			var exists bool
-			err := tx.QueryRowContext(ctx,
-				`SELECT EXISTS(SELECT 1 FROM providers WHERE id = $1 AND user_id = $2)`,
-				req.ProviderID, req.UserID,
-			).Scan(&exists)
-			if err != nil {
-				return fmt.Errorf("error checking provider existence: %v", err)
-			}
-			if !exists {
-				return common.ErrNotFound(fmt.Errorf("provider not found or does not belong to user"))
-			}
-		} else {
-			if req.ConsumerID == nil {
-				return common.ErrInvalidInput(fmt.Errorf("consumer_id is required for consumer API keys"))
-			}
-			var exists bool
-			err := tx.QueryRowContext(ctx,
-				`SELECT EXISTS(SELECT 1 FROM consumers WHERE id = $1 AND user_id = $2)`,
-				req.ConsumerID, req.UserID,
-			).Scan(&exists)
-			if err != nil {
-				return fmt.Errorf("error checking consumer existence: %v", err)
-			}
-			if !exists {
-				return common.ErrNotFound(fmt.Errorf("consumer not found or does not belong to user"))
-			}
-		}
-
-		// Create API key
-		apiKey := APIKey{
-			ID:          uuid.New(),
-			ProviderID:  req.ProviderID,
-			ConsumerID:  req.ConsumerID,
-			APIKey:      generateAPIKey(),
-			Description: req.Description,
-			IsActive:    true,
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
-		}
-
-		_, err = tx.ExecContext(ctx,
-			`INSERT INTO api_keys (id, provider_id, consumer_id, api_key, description, is_active, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			apiKey.ID, apiKey.ProviderID, apiKey.ConsumerID, apiKey.APIKey,
-			apiKey.Description, apiKey.IsActive, apiKey.CreatedAt, apiKey.UpdatedAt,
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO api_keys (id, provider_id, consumer_id, api_key, lookup_key, is_active, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+			uuid.New(),
+			req.ProviderID,
+			req.ConsumerID,
+			hashedKey.BcryptHash,
+			hashedKey.LookupKey,
+			true,
 		)
 		if err != nil {
-			return fmt.Errorf("error creating API key: %v", err)
+			return fmt.Errorf("error creating API key: %w", err)
 		}
-
-		response = CreateAPIKeyResponse{
-			ID:          apiKey.ID,
-			APIKey:      apiKey.APIKey,
-			Description: apiKey.Description,
-			ProviderID:  apiKey.ProviderID,
-			ConsumerID:  apiKey.ConsumerID,
-		}
-
 		return nil
 	})
 
@@ -456,5 +365,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, req CreateAPIKeyRequest) (*C
 		return nil, common.ErrInternalServer(err)
 	}
 
-	return &response, nil
+	return &CreateAPIKeyResponse{
+		APIKey: plainTextKey,
+	}, nil
 }
