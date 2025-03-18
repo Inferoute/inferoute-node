@@ -218,6 +218,12 @@ The orchestrator is the central controller that coordinates the request workflow
 
 - **Role:** Manages user authentication, API key validation, and deposit handling. Users can have multiple providers and/or consumers associated with their account. Also provides deposit hold/release functionality for transaction safety.
 
+- **Security Features:**
+  - Uses bcrypt for API key hashing (not stored in plaintext)
+  - Fast lookup optimization using SHA256 prefix
+  - Secure key generation with crypto/rand
+  - Internal API key protection
+
 - **Endpoints (HTTP/JSON):**
 
 POST /api/auth/users
@@ -267,6 +273,8 @@ POST /api/auth/entities
 POST /api/auth/api-keys
   - Creates a new API key for a provider or consumer
   - Protected by X-Internal-Key
+  - Generates a secure random API key
+  - Stores bcrypt hash and lookup key for efficient validation
   - Example Request:
     ```json
     {
@@ -280,7 +288,7 @@ POST /api/auth/api-keys
     ```json
     {
       "id": "key-uuid",
-      "api_key": "sk-...",
+      "api_key": "sk-...",  // Only time plaintext key is returned
       "description": "Production API key",
       "provider_id": "provider-uuid",  // or consumer_id
       "created_at": "timestamp"
@@ -289,6 +297,9 @@ POST /api/auth/api-keys
 
 POST /api/auth/validate
   - Validates API key and checks user's details
+  - Uses optimized two-step validation:
+    1. Fast lookup using SHA256 prefix (indexed)
+    2. Secure bcrypt comparison only on potential matches
   - For consumers: ensures minimum balance requirement ($1.00)
   - For providers: verifies active status
   - Protected by X-Internal-Key
@@ -317,6 +328,16 @@ POST /api/auth/release
 - Flexible API key management per entity
 - Transaction safety with hold/release mechanism
 - Clear separation between user accounts and their provider/consumer entities
+- Secure API key storage using bcrypt hashing
+- Optimized validation using fast lookup keys
+- No plaintext API key storage
+
+**API Key Security:**
+- API keys are generated using crypto/rand for cryptographic security
+- Keys are stored as bcrypt hashes (never in plaintext)
+- Fast validation using indexed lookup keys (first 8 chars of SHA256)
+- Validation process optimized to minimize bcrypt comparisons
+- Only shows plaintext key once during creation
 
 ## 4.  Provider Management Service (Go) - DONE!!!!!
 
@@ -854,13 +875,13 @@ graph TD
 
     subgraph Consumer["Consumer Branch"]
         Consumer_Entity[Consumer<br>- id: UUID<br>- user_id: UUID<br>- name: string<br>- max_input_price_tokens: decimal<br>- max_output_price_tokens: decimal]
-        Consumer_APIKey[API Key<br>- id: UUID<br>- consumer_id: UUID<br>- api_key: string<br>- is_active: boolean]
+        Consumer_APIKey[API Key<br>- id: UUID<br>- consumer_id: UUID<br>- api_key: string (bcrypt hash)<br>- lookup_key: string(8)<br>- is_active: boolean]
         Consumer_Models[Consumer Models<br>- id: UUID<br>- consumer_id: UUID<br>- model_name: string<br>- max_input_price_tokens: decimal<br>- max_output_price_tokens: decimal]
     end
 
     subgraph Provider["Provider Branch"]
         Provider_Entity[Provider<br>- id: UUID<br>- user_id: UUID<br>- name: string<br>- api_url: string<br>- health_status: string<br>- tier: int]
-        Provider_APIKey[API Key<br>- id: UUID<br>- provider_id: UUID<br>- api_key: string<br>- is_active: boolean]
+        Provider_APIKey[API Key<br>- id: UUID<br>- provider_id: UUID<br>- api_key: string (bcrypt hash)<br>- lookup_key: string(8)<br>- is_active: boolean]
         Provider_Models[Provider Models<br>- id: UUID<br>- provider_id: UUID<br>- model_name: string<br>- input_price_tokens: decimal<br>- output_price_tokens: decimal<br>- average_tps: decimal]
     end
 
@@ -888,6 +909,15 @@ graph TD
   - Username
   - Created/Updated timestamps
   - Authentication details
+
+- **API Keys**: Secure authentication tokens for providers and consumers
+  - Unique ID (UUID)
+  - Links to either provider_id or consumer_id (never both)
+  - API key stored as bcrypt hash (never plaintext)
+  - Lookup key (first 8 chars of SHA256) for fast validation
+  - Active status flag
+  - Created/Updated timestamps
+  - Indexed lookup_key for efficient validation
 
 - **Consumers**: Extended user type for those consuming inference services
   - Links to user via user_id
