@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sentnl/inferoute-node/internal/db"
 	"github.com/sentnl/inferoute-node/pkg/common"
+	"github.com/sentnl/inferoute-node/pkg/common/apikey"
 	"github.com/sentnl/inferoute-node/pkg/rabbitmq"
 )
 
@@ -66,15 +67,37 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 	// Get provider ID from API key
 	var providerID uuid.UUID
 	var serviceType string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT p.id, p.provider_type
+
+	// Query all API keys and compare hashes
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT p.id, p.provider_type, ak.api_key
 		FROM providers p
 		JOIN api_keys ak ON ak.provider_id = p.id
-		WHERE ak.api_key = $1 AND ak.is_active = true`,
-		msg.APIKey,
-	).Scan(&providerID, &serviceType)
+		WHERE ak.is_active = true`)
 	if err != nil {
-		return fmt.Errorf("error getting provider ID: %w", err)
+		return fmt.Errorf("error querying API keys: %w", err)
+	}
+	defer rows.Close()
+
+	found := false
+	for rows.Next() {
+		var id uuid.UUID
+		var sType string
+		var hashedKey string
+		if err := rows.Scan(&id, &sType, &hashedKey); err != nil {
+			return fmt.Errorf("error scanning API key: %w", err)
+		}
+
+		if apikey.CompareAPIKey(msg.APIKey, hashedKey) {
+			providerID = id
+			serviceType = sType
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("invalid API key")
 	}
 
 	return s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {

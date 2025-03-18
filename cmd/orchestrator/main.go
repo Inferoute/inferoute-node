@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"os/signal"
@@ -18,6 +17,7 @@ import (
 	"github.com/sentnl/inferoute-node/internal/db"
 	"github.com/sentnl/inferoute-node/pkg/api/orchestrator"
 	"github.com/sentnl/inferoute-node/pkg/common"
+	"github.com/sentnl/inferoute-node/pkg/common/apikey"
 	"github.com/sentnl/inferoute-node/pkg/rabbitmq"
 )
 
@@ -99,24 +99,40 @@ func main() {
 				return common.ErrUnauthorized(fmt.Errorf("invalid authorization format"))
 			}
 
-			apiKey := strings.TrimSpace(parts[1])
-			if apiKey == "" {
+			plainTextKey := strings.TrimSpace(parts[1])
+			if plainTextKey == "" {
 				return common.ErrUnauthorized(fmt.Errorf("empty API key"))
 			}
 
-			// Query the database to get the consumer ID associated with this API key
+			// Query all API keys and compare hashes
 			var consumerID uuid.UUID
-			query := `SELECT c.id 
+			rows, err := database.QueryContext(c.Request().Context(),
+				`SELECT c.id, ak.api_key
 				FROM consumers c
 				JOIN api_keys ak ON ak.consumer_id = c.id
-				WHERE ak.api_key = $1 AND ak.is_active = true`
-
-			err := database.QueryRowContext(c.Request().Context(), query, apiKey).Scan(&consumerID)
+				WHERE ak.is_active = true`)
 			if err != nil {
-				if err == sql.ErrNoRows {
-					return common.ErrUnauthorized(fmt.Errorf("invalid API key"))
+				return common.ErrInternalServer(fmt.Errorf("error querying API keys: %w", err))
+			}
+			defer rows.Close()
+
+			found := false
+			for rows.Next() {
+				var id uuid.UUID
+				var hashedKey string
+				if err := rows.Scan(&id, &hashedKey); err != nil {
+					return common.ErrInternalServer(fmt.Errorf("error scanning API key: %w", err))
 				}
-				return common.ErrInternalServer(fmt.Errorf("error validating API key: %w", err))
+
+				if apikey.CompareAPIKey(plainTextKey, hashedKey) {
+					consumerID = id
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				return common.ErrUnauthorized(fmt.Errorf("invalid API key"))
 			}
 
 			// Set consumer ID in context

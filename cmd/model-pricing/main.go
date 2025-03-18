@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"github.com/sentnl/inferoute-node/internal/db"
 	"github.com/sentnl/inferoute-node/pkg/api/model_pricing"
 	"github.com/sentnl/inferoute-node/pkg/common"
+	"github.com/sentnl/inferoute-node/pkg/common/apikey"
 )
 
 func main() {
@@ -77,24 +77,40 @@ func main() {
 				return common.ErrUnauthorized(fmt.Errorf("invalid authorization format"))
 			}
 
-			apiKey := strings.TrimSpace(parts[1])
-			if apiKey == "" {
+			plainTextKey := strings.TrimSpace(parts[1])
+			if plainTextKey == "" {
 				return common.ErrUnauthorized(fmt.Errorf("empty API key"))
 			}
 
-			// Query the database to get the provider ID associated with this API key
+			// Query all API keys and compare hashes
 			var providerID uuid.UUID
-			query := `SELECT p.id 
+			rows, err := database.QueryContext(c.Request().Context(),
+				`SELECT p.id, ak.api_key
 				FROM providers p
 				JOIN api_keys ak ON ak.provider_id = p.id
-				WHERE ak.api_key = $1 AND ak.is_active = true`
-
-			err := database.QueryRowContext(c.Request().Context(), query, apiKey).Scan(&providerID)
+				WHERE ak.is_active = true`)
 			if err != nil {
-				if err == sql.ErrNoRows {
-					return common.ErrUnauthorized(fmt.Errorf("invalid API key"))
+				return common.ErrInternalServer(fmt.Errorf("error querying API keys: %w", err))
+			}
+			defer rows.Close()
+
+			found := false
+			for rows.Next() {
+				var id uuid.UUID
+				var hashedKey string
+				if err := rows.Scan(&id, &hashedKey); err != nil {
+					return common.ErrInternalServer(fmt.Errorf("error scanning API key: %w", err))
 				}
-				return common.ErrInternalServer(fmt.Errorf("error validating API key: %w", err))
+
+				if apikey.CompareAPIKey(plainTextKey, hashedKey) {
+					providerID = id
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				return common.ErrUnauthorized(fmt.Errorf("invalid API key"))
 			}
 
 			// Set provider ID in context
