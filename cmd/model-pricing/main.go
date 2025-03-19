@@ -71,10 +71,8 @@ func main() {
 
 				key := c.Request().Header.Get("X-Internal-Key")
 				if key != cfg.InternalAPIKey {
-					logger.Error("Internal Auth Middleware - Invalid or missing internal key: %s", key)
 					return common.ErrUnauthorized(fmt.Errorf("invalid internal key"))
 				}
-				logger.Info("Internal Auth Middleware - Valid internal key")
 				return next(c)
 			}
 			return next(c)
@@ -92,8 +90,6 @@ func main() {
 			if c.Request().URL.Path == "/api/model-pricing/update-pricing-data" {
 				return next(c)
 			}
-
-			logger.Info("Provider Auth Middleware - Processing request to: %s", c.Request().URL.Path)
 
 			auth := c.Request().Header.Get("Authorization")
 			if auth == "" {

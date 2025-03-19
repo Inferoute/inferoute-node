@@ -45,10 +45,6 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 		return nil, fmt.Errorf("internal key missing from context")
 	}
 
-	if logger != nil {
-		logger.Info("Making internal request with key length: %d", len(internalKey))
-	}
-
 	// Create HTTP client with timeout
 	client := &http.Client{
 		Timeout: 10 * time.Second,
