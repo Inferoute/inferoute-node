@@ -11,7 +11,6 @@ import (
 
 // NewService creates a new scheduler service
 func NewService(internalKey string, logger *common.Logger) *Service {
-	logger.Info("Creating scheduler service with internal key length: %d", len(internalKey))
 	if internalKey == "" {
 		logger.Error("WARNING: Internal key is empty!")
 	}
@@ -27,7 +26,6 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("scheduler already initialized")
 	}
 
-	s.logger.Info("Starting scheduler with internal key length: %d", len(s.internalKey))
 	// Update model pricing every minute
 	_, err := s.cron.AddFunc("0 * * * * *", func() {
 		if err := s.updateModelPricing(ctx); err != nil {
@@ -73,8 +71,6 @@ func (s *Service) Stop() {
 }
 
 func (s *Service) makeRequest(ctx context.Context, method string, endpoint common.ServiceEndpoint, path string) error {
-	s.logger.Info("Making internal request to %s:%d%s with internal key length: %d", endpoint.Host, endpoint.Port, path, len(s.internalKey))
-	s.logger.Info("Full request details - Method: %s, Host: %s, Port: %d, Path: %s", method, endpoint.Host, endpoint.Port, path)
 
 	// Add internal key to context
 	ctx = context.WithValue(ctx, "internal_key", s.internalKey)
