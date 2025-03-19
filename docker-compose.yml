@@ -126,6 +126,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.model-pricing
+    env_file: .env
     expose:
       - "8085"
     environment:
@@ -133,6 +134,20 @@ services:
       SERVER_PORT: 8085
     depends_on:
       - cockroachdb
+    networks:
+      - inferoute-network
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.scheduler
+    env_file: .env
+    environment:
+      <<: *common-variables
+    depends_on:
+      - model-pricing
+      - provider-health
     networks:
       - inferoute-network
     restart: unless-stopped

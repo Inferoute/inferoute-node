@@ -39,6 +39,10 @@ func NewService(db *db.DB, logger *common.Logger, rmq *rabbitmq.Client, internal
 func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req *OpenAIRequest) (interface{}, error) {
 	totalStartTime := time.Now()
 
+	// Add internal key to context
+	ctx = context.WithValue(ctx, "internal_key", s.internalAPIKey)
+	ctx = context.WithValue(ctx, "logger", s.logger)
+
 	// Add max_tokens and temperature to context if they exist in the request
 	if req.MaxTokens > 0 {
 		ctx = context.WithValue(ctx, "max_tokens", req.MaxTokens)

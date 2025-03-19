@@ -55,14 +55,39 @@ func main() {
 
 	logger.Info("Setting up middleware chain")
 
-	// Add provider auth middleware
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			logger.Info("Provider Auth Middleware - Processing request to: %s", c.Request().URL.Path)
+	// Initialize service and handler
+	service := model_pricing.NewService(database, logger)
+	handler := model_pricing.NewHandler(service)
 
+	logger.Info("Registering routes")
+
+	// Create base API group
+	api := e.Group("/api")
+
+	// Internal endpoints (protected by X-Internal-Key)
+	internalGroup := api.Group("/model-pricing", func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if c.Request().URL.Path == "/api/model-pricing/update-pricing-data" {
+
+				key := c.Request().Header.Get("X-Internal-Key")
+				if key != cfg.InternalAPIKey {
+					return common.ErrUnauthorized(fmt.Errorf("invalid internal key"))
+				}
+				return next(c)
+			}
+			return next(c)
+		}
+	})
+
+	// Register internal routes first
+	logger.Info("Registering internal route: POST /api/model-pricing/update-pricing-data")
+	internalGroup.POST("/update-pricing-data", handler.UpdateModelPricingData)
+
+	// Provider authenticated routes
+	providerGroup := api.Group("/model-pricing", func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
 			// Skip provider auth for internal routes
-			if strings.HasSuffix(c.Request().URL.Path, "/update-pricing-data") {
-				logger.Info("Provider Auth Middleware - Skipping for internal route")
+			if c.Request().URL.Path == "/api/model-pricing/update-pricing-data" {
 				return next(c)
 			}
 
@@ -119,18 +144,10 @@ func main() {
 		}
 	})
 
-	// Initialize service and handler
-	service := model_pricing.NewService(database, logger)
-	handler := model_pricing.NewHandler(service)
-
-	logger.Info("Registering routes")
-
-	// Register public routes
-	publicGroup := e.Group("/api/model-pricing")
-	logger.Info("Registering public route: POST /api/model-pricing/get-prices")
-	publicGroup.POST("/get-prices", handler.GetModelPrices)
-	logger.Info("Registering public route: GET /api/model-pricing/pricing-data/:model_name")
-	publicGroup.GET("/pricing-data/:model_name", handler.GetModelPricingData)
+	// Register provider routes
+	logger.Info("Registering provider-authenticated routes")
+	providerGroup.POST("/get-prices", handler.GetModelPrices)
+	providerGroup.GET("/pricing-data/:model_name", handler.GetModelPricingData)
 
 	// Start the scheduler to update pricing data every minute
 	ctx, cancel := context.WithCancel(context.Background())
@@ -144,28 +161,6 @@ func main() {
 			logger.Error("Failed to update pricing data: %v", err)
 		} else {
 			logger.Info("Initial pricing data update completed for %d models", count)
-		}
-	}()
-
-	// Start the scheduler
-	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				logger.Info("Running scheduled pricing data update")
-				count, err := service.UpdateModelPricingData(ctx)
-				if err != nil {
-					logger.Error("Failed to update pricing data: %v", err)
-				} else {
-					logger.Info("Scheduled pricing data update completed for %d models", count)
-				}
-			case <-ctx.Done():
-				logger.Info("Stopping pricing data scheduler")
-				return
-			}
 		}
 	}()
 
