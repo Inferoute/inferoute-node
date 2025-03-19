@@ -58,3 +58,16 @@ func (h *Handler) GetModelPricingData(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, response)
 }
+
+// UpdateModelPricingData handles the request to manually update model pricing data
+func (h *Handler) UpdateModelPricingData(c echo.Context) error {
+	count, err := h.service.UpdateModelPricingData(c.Request().Context())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message": "Successfully updated model pricing data",
+		"count":   count,
+	})
+}

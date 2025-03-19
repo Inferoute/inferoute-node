@@ -51,6 +51,7 @@ services=(
     "payment-processing"
     "orchestrator"
     "model-pricing"
+    "scheduler"
 )
 
 # First compile all services

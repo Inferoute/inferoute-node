@@ -339,7 +339,7 @@ POST /api/auth/release
 - Validation process optimized to minimize bcrypt comparisons
 - Only shows plaintext key once during creation
 
-## 4.  Provider Management Service (Go) - DONE!!!!!
+## 4.  Provider Management Service (Go)
 
  - **Role:** Provides APIs for providers to manage their models, availability status, and health reporting. Acts as the entry point for provider health updates which are then published to RabbitMQ for processing by the provider-health service
 
@@ -487,7 +487,7 @@ POST /api/auth/release
   Repsonse from provider is prited to console. We need to send to Orchestrator once build.
 
 
-## 6.  Payment Processing Service (Go) with RabbitMQ - DONE
+## 6.  Payment Processing Service (Go) with RabbitMQ 
 
 -  **Role:** Handles the asynchronous financial operations after the main workflow is complete.
 
@@ -608,7 +608,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
 
 ## 9. Model Pricing Service (GO)
 
-- **Role:** Manages and provides access to average pricing information for all models across providers. Helps consumers understand typical costs before making requests. Also maintains default pricing for unknown models and collects time-series pricing data for candlestick charts. The service includes a scheduler that runs every minute to collect and store pricing metrics.
+- **Role:** Manages and provides access to average pricing information for all models across providers. Helps consumers understand typical costs before making requests. Also maintains default pricing for unknown models and collects time-series pricing data for candlestick charts.
 
 - **Endpoints (HTTP/JSON):**
 
@@ -628,7 +628,6 @@ We will need some Cloud cron thing to run the check for stale providers and upda
          "model_prices": [
            {
              "model_name": "llama2",
-
              "avg_input_price": 0.0002,
              "avg_output_price": 0.0003,
              "sample_size": 15
@@ -672,20 +671,6 @@ We will need some Cloud cron thing to run the check for stale providers and upda
              "output_close": 0.00032,
              "volume_input": 15000,
              "volume_output": 12000
-           },
-           {
-             "model_name": "llama3.2",
-             "timestamp": "2023-06-15T14:29:00Z",
-             "input_open": 0.00018,
-             "input_high": 0.00022,
-             "input_low": 0.00018,
-             "input_close": 0.00020,
-             "output_open": 0.00028,
-             "output_high": 0.00032,
-             "output_low": 0.00028,
-             "output_close": 0.00030,
-             "volume_input": 10000,
-             "volume_output": 8000
            }
          ]
        }
@@ -697,17 +682,20 @@ We will need some Cloud cron thing to run the check for stale providers and upda
        - Volume_input represents the sum of input tokens from all transactions for that model
        - Volume_output represents the sum of output tokens from all transactions for that model
 
-- **Scheduler:**
-  - The service includes an internal scheduler that runs every minute
-  - On each run, it collects pricing metrics for all active models:
+  3. **Update Model Pricing Data** - Internal API
+     - Endpoint: `POST /api/model-pricing/update-pricing-data`
+     - Description: Manually triggers the model pricing data update process
+     - Authentication: Requires X-Internal-Key
+     - Response: Returns count of models updated
+     - Note: This endpoint is called by the Scheduler Service every minute
+
+      - On each run, it collects pricing metrics for all active models:
     - Highest price (input_high, output_high)
     - Lowest price (input_low, output_low)
     - Average price (input_close, output_close)
     - Previous close price (input_open, output_open)
     - Transaction volume (input tokens and output tokens)
-  - Data is stored in the `model_pricing_data` table
-  - The scheduler runs automatically when the service starts and continues until shutdown
-  - This time-series data enables visualization of price trends using candlestick charts
+    - Data is stored in the `model_pricing_data` table
 
 - **Key Features:**
   - Maintains and auto-updates default pricing for unknown models based on global averages
@@ -718,30 +706,74 @@ We will need some Cloud cron thing to run the check for stale providers and upda
   - Default pricing ensures system can handle requests for new or uncommon models
   - Provides pricing data for Provider Health service when adding new models
   - Collects and stores time-series pricing data for visualization in candlestick charts
-  - Fully automatic minute-by-minute data collection via internal scheduler without requiring API calls
+  - Exposes internal API for scheduled price updates
 
 ## 10.  CockroachDB - DONE!!!!
 
 -  **Role:** Distributed data store for users, API keys, HMACs, provider data, and transaction records.
 
-## 11.  Logging and Monitoring Service
+## 11.  Logging and Monitoring Service - NOT DONE
 
 -  **Role:** Capeture and store logs from all of our services.
 
 Use OpenTelemetry to capture logs from all of our services and send to datadog
 OR use this - https://www.multiplayer.app/docs/  Auto-documentation and provides network map
 
+## 12. Scheduler Service (GO)
 
-## 11. Scheduling Service:
+- **Role:** Manages and executes periodic tasks across the system. Ensures critical maintenance and update operations are performed at regular intervals.
 
-- We need to create an external service that runs on GCP  that runs the scheduling for each of our APIs that need to be manually triggered. This should connect to any of our central nodees as cockcraochDB will keep the DB consistent across all of our Nodes
+- **Architecture:**
+  - Built using Echo framework
+  - Uses robfig/cron for task scheduling
+  - Implements graceful shutdown
+  - Protected by X-Internal-Key for all API calls
 
-#### provider_health 
- - check stale providers
- - update tiers
+- **Scheduled Tasks:**
+  1. **Model Pricing Updates** (Every 1 minute)
+     - Calls `POST /api/model-pricing/update-pricing-data`
+     - Updates pricing data for all active models
+     - Maintains candlestick chart data
+     - Updates default pricing based on global averages
 
-### 12. Provider client (GO)
+  2. **Provider Tier Updates** (Every 5 minutes)
+     - Calls `POST /api/health/providers/update-tiers`
+     - Updates provider tiers based on 30-day health history
+     - Assigns tiers (1-3) based on uptime percentages:
+       - Tier 1: 99%+ green status
+       - Tier 2: 95-99% green status
+       - Tier 3: <95% green status
 
+  3. **Stale Provider Checks** (Every 5 minutes)
+     - Calls `POST /api/health/providers/check-stale`
+     - Identifies providers without recent health updates
+     - Marks providers as unhealthy if no updates in 5+ minutes
+     - Updates provider status in database
+
+- **Key Features:**
+  - Centralized scheduling for critical system tasks
+  - Automatic retry on failed API calls
+  - Proper error handling and logging
+  - Graceful shutdown support
+  - Configurable through environment variables
+  - Protected internal API endpoints
+  - Runs as a standalone microservice
+  - Supports distributed deployment
+
+- **Configuration:**
+  - Base URL for API calls
+  - Internal API key for authentication
+  - Custom logging configuration
+  - HTTP client timeout settings
+
+- **Deployment:**
+  - Containerized using Docker
+  - Integrated with docker-compose
+  - Depends on model-pricing and health services
+  - Runs on the central node
+  - Supports horizontal scaling if needed
+
+## 13. Provider Client (GO)
 
 - Should be applied via Docker - make sure docker is small and efficient as can be.
 - Documentation to run client on your own (this will include the cron jon to send health updates)

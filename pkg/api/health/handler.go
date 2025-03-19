@@ -252,6 +252,7 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 // @Failure 500 {object} common.ErrorResponse
 // @Router /api/health/providers/update-tiers [post]
 func (h *Handler) TriggerUpdateTiers(c echo.Context) error {
+	h.logger.Info("Received request to update provider tiers")
 	updatedCount, err := h.service.UpdateProviderTiers(c.Request().Context())
 	if err != nil {
 		return common.NewInternalError("failed to update provider tiers", err)

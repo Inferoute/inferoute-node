@@ -8,8 +8,6 @@ import (
 	"io"
 	"net/http"
 	"time"
-
-	"github.com/sentnl/inferoute-node/internal/config"
 )
 
 // ServiceEndpoint represents different internal service endpoints
@@ -25,20 +23,31 @@ var (
 	ProviderManagementService    = ServiceEndpoint{Host: "provider-management", Port: 8082}
 	ProviderCommunicationService = ServiceEndpoint{Host: "provider-communication", Port: 8083}
 	ProviderHealthService        = ServiceEndpoint{Host: "provider-health", Port: 8084}
-	PaymentService               = ServiceEndpoint{Host: "payment", Port: 8085}
+	ModelPricingService          = ServiceEndpoint{Host: "model-pricing", Port: 8085}
 )
 
 // MakeInternalRequest makes a request to another internal service
 func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEndpoint, path string, body interface{}) (map[string]interface{}, error) {
 	totalStartTime := time.Now()
 
-	// Get config for internal key
-	configStartTime := time.Now()
-	cfg, err := config.LoadConfig("")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+	// Get logger from context if available
+	var logger *Logger
+	if l, ok := ctx.Value("logger").(*Logger); ok {
+		logger = l
 	}
-	configTime := time.Since(configStartTime).Milliseconds()
+
+	// Get internal key from context
+	internalKey, ok := ctx.Value("internal_key").(string)
+	if !ok || internalKey == "" {
+		if logger != nil {
+			logger.Error("Internal key missing from context")
+		}
+		return nil, fmt.Errorf("internal key missing from context")
+	}
+
+	if logger != nil {
+		logger.Info("Making internal request with key length: %d", len(internalKey))
+	}
 
 	// Create HTTP client with timeout
 	client := &http.Client{
@@ -68,7 +77,7 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Key", cfg.InternalAPIKey)
+	req.Header.Set("X-Internal-Key", internalKey)
 
 	// Make request
 	httpStartTime := time.Now()
@@ -94,10 +103,9 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 
 	totalTime := time.Since(totalStartTime).Milliseconds()
 
-	// Get logger from context if available
-	if logger, ok := ctx.Value("logger").(*Logger); ok {
-		logger.Info("Internal request to %s:%d%s - Total: %dms, HTTP: %dms, Marshal: %dms, Decode: %dms, Config: %dms",
-			endpoint.Host, endpoint.Port, path, totalTime, httpTime, marshalTime, decodeTime, configTime)
+	if logger != nil {
+		logger.Info("Internal request to %s:%d%s - Total: %dms, HTTP: %dms, Marshal: %dms, Decode: %dms",
+			endpoint.Host, endpoint.Port, path, totalTime, httpTime, marshalTime, decodeTime)
 	}
 
 	return result, nil
@@ -105,10 +113,23 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 
 // MakeInternalRequestRaw is similar to MakeInternalRequest but returns the raw response body
 func MakeInternalRequestRaw(ctx context.Context, method string, endpoint ServiceEndpoint, path string, body interface{}) ([]byte, error) {
-	// Get config for internal key
-	cfg, err := config.LoadConfig("")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+	// Get logger from context if available
+	var logger *Logger
+	if l, ok := ctx.Value("logger").(*Logger); ok {
+		logger = l
+	}
+
+	// Get internal key from context
+	internalKey, ok := ctx.Value("internal_key").(string)
+	if !ok || internalKey == "" {
+		if logger != nil {
+			logger.Error("Internal key missing from context")
+		}
+		return nil, fmt.Errorf("internal key missing from context")
+	}
+
+	if logger != nil {
+		logger.Info("Making internal request with key length: %d", len(internalKey))
 	}
 
 	// Create HTTP client with timeout
@@ -137,7 +158,7 @@ func MakeInternalRequestRaw(ctx context.Context, method string, endpoint Service
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Key", cfg.InternalAPIKey)
+	req.Header.Set("X-Internal-Key", internalKey)
 
 	// Make request
 	resp, err := client.Do(req)
