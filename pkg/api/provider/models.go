@@ -13,6 +13,7 @@ const (
 	ServiceTypeOllama   ServiceType = "ollama"
 	ServiceTypeExolabs  ServiceType = "exolabs"
 	ServiceTypeLlamaCPP ServiceType = "llama_cpp"
+	ServiceTypeVLLM     ServiceType = "vllm"
 )
 
 // ProviderModel represents a model configuration for a provider
@@ -42,7 +43,7 @@ type ProviderStatus struct {
 // AddModelRequest represents a request to add a new model for a provider
 type AddModelRequest struct {
 	ModelName         string      `json:"model_name" validate:"required"`
-	ServiceType       ServiceType `json:"service_type" validate:"required,oneof=ollama exolabs llama_cpp"`
+	ServiceType       ServiceType `json:"service_type" validate:"required,oneof=ollama exolabs llama_cpp vllm"`
 	InputPriceTokens  float64     `json:"input_price_tokens" validate:"required,min=0"`
 	OutputPriceTokens float64     `json:"output_price_tokens" validate:"required,min=0"`
 }
@@ -50,7 +51,7 @@ type AddModelRequest struct {
 // UpdateModelRequest represents the request to update a model
 type UpdateModelRequest struct {
 	ModelName         string  `json:"model_name" validate:"required"`
-	ServiceType       string  `json:"service_type" validate:"required,oneof=ollama exolabs llama_cpp"`
+	ServiceType       string  `json:"service_type" validate:"required,oneof=ollama exolabs llama_cpp vllm"`
 	InputPriceTokens  float64 `json:"input_price_tokens" validate:"required,gte=0"`
 	OutputPriceTokens float64 `json:"output_price_tokens" validate:"required,gte=0"`
 }
