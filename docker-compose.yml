@@ -165,10 +165,10 @@ services:
   # CockroachDB container
   cockroachdb:
     image: cockroachdb/cockroach:v23.1.11
-    command: sh -c 'cockroach start --insecure --advertise-addr=$$WIREGUARD_IP:26257 --join=$$COCKROACH_JOIN_IPS --cache=.25 --max-sql-memory=.25'
+    command: start --insecure --advertise-addr=${WIREGUARD_IP}:26257 --join=${WIREGUARD_IP}:26257 --cache=.25 --max-sql-memory=.25
     environment:
       WIREGUARD_IP: ${WIREGUARD_IP}
-      COCKROACH_JOIN_IPS: $${WIREGUARD_IP}:26257
+      COCKROACH_JOIN_IPS: ${WIREGUARD_IP}:26257
     ports:
       - "${WIREGUARD_IP}:26257:26257"  # SQL port, bind to WireGuard IP
     expose:
