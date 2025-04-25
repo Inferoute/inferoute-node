@@ -17,14 +17,19 @@ x-common-variables: &common-variables
   RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
   INTERNAL_API_KEY: ${INTERNAL_API_KEY:-klondikee}
   INTERNAL_NETWORK_CIDR: ${INTERNAL_NETWORK_CIDR:-172.16.0.0/12}
+  VIRTUAL_HOST: core.infereoute.com
+  LETSENCRYPT_HOST: core.infereoute.com
+  LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-your-email@example.com}
 
 services:
   nginx:
     build:
       context: .
       dockerfile: docker/Dockerfile.nginx
-    ports:
-      - "8000:80"  # Map host port 8000 to container port 80
+    environment:
+      <<: *common-variables
+    expose:
+      - "80"
     depends_on:
       - orchestrator
       - auth
@@ -33,7 +38,7 @@ services:
       - provider-health
       - model-pricing
     networks:
-      - inferoute-network
+      - sentnl-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
@@ -54,7 +59,7 @@ services:
       - cockroachdb
       - rabbitmq
     networks:
-      - inferoute-network
+      - sentnl-net
     restart: unless-stopped
 
   auth:
@@ -71,7 +76,7 @@ services:
     depends_on:
       - cockroachdb
     networks:
-      - inferoute-network
+      - sentnl-net
     restart: unless-stopped
 
   provider-management:
@@ -87,7 +92,7 @@ services:
       - cockroachdb
       - rabbitmq
     networks:
-      - inferoute-network
+      - sentnl-net
     restart: unless-stopped
 
   provider-communication:
@@ -103,7 +108,7 @@ services:
       - cockroachdb
       - rabbitmq
     networks:
-      - inferoute-network
+      - sentnl-net
     restart: unless-stopped
 
   provider-health:
@@ -119,7 +124,7 @@ services:
       - cockroachdb
       - rabbitmq
     networks:
-      - inferoute-network
+      - sentnl-net
     restart: unless-stopped
 
   model-pricing:
@@ -135,7 +140,7 @@ services:
     depends_on:
       - cockroachdb
     networks:
-      - inferoute-network
+      - sentnl-net
     restart: unless-stopped
 
   scheduler:
@@ -149,20 +154,21 @@ services:
       - model-pricing
       - provider-health
     networks:
-      - inferoute-network
+      - sentnl-net
     restart: unless-stopped
 
   # CockroachDB container
   cockroachdb:
     image: cockroachdb/cockroach:v23.1.11
-    command: start-single-node --insecure
+    command: start --insecure --advertise-addr=${WIREGUARD_IP}:26257 --join=${COCKROACH_JOIN_IPS:-${WIREGUARD_IP}:26257} --cache=.25 --max-sql-memory=.25
     ports:
-      - "26257:26257"  # SQL port
-      - "8080:8080"    # UI port
+      - "${WIREGUARD_IP}:26257:26257"  # SQL port, bind to WireGuard IP
+    expose:
+      - "8080"    # UI port, only needed internally
     volumes:
       - cockroach-data:/cockroach/cockroach-data
     networks:
-      - inferoute-network
+      - sentnl-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
@@ -173,9 +179,9 @@ services:
   # RabbitMQ container
   rabbitmq:
     image: rabbitmq:3.12-management-alpine
-    ports:
-      - "5672:5672"    # AMQP port
-      - "15672:15672"  # Management UI port
+    expose:
+      - "5672"    # AMQP port
+      - "15672"   # Management UI port
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-inferoute}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-Nightshade900!}
@@ -185,7 +191,7 @@ services:
       - ./docker/files/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - ./docker/files/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
     networks:
-      - inferoute-network
+      - sentnl-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_running"]
@@ -198,5 +204,5 @@ volumes:
   rabbitmq-data:
 
 networks:
-  inferoute-network:
+  sentnl-net:
     driver: bridge 
