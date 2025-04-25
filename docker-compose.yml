@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Common environment variables for all services
 x-common-variables: &common-variables
   ENVIRONMENT: ${ENVIRONMENT:-development}
