@@ -1,0 +1,12 @@
+FROM rabbitmq:3.12-management-alpine
+
+# Copy initialization script
+COPY docker/files/rabbitmq/init.sh /usr/local/bin/init.sh
+RUN chmod +x /usr/local/bin/init.sh
+
+# Create entrypoint script
+COPY docker/files/rabbitmq/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["rabbitmq-server"] 
