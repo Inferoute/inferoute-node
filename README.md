@@ -11,19 +11,45 @@ Inferoute Node Application
 ### Start all services
 
 1. First, create a `.env` file in the root directory with your configuration (see `.env.example`)
+2. docker network create inferoute-net  
+3. docker compose up -d nginx-proxy acme-companion
+ 
 
-2. Start all containers:
+4. Initialize CockroachDB:
+
+## Start cockcroachdb 
+
 ```bash
-docker compose up -d
+docker compose up -d cockcroachdb
 ```
 
-3. Initialize CockroachDB:
 ```bash
+
+# Initialise cluster
+docker exec -i inferoute-node-cockroachdb-1 cockroach init --insecure
+
 # Import the schema
 docker exec -i inferoute-node-cockroachdb-1 cockroach sql --insecure < schema.sql
 
 # Verify the database is running
 docker exec -i inferoute-node-cockroachdb-1 cockroach sql --insecure -e "SHOW DATABASES;"
+```
+
+
+5. Initialise Rabbitmq
+
+## Start rabbitmq
+
+docker compose up -d rabbitmq
+
+```bash
+docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare exchange name=provider_health type=topic durable=true && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare exchange name=transactions_exchange type=topic durable=true && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare queue name=provider_health_updates durable=true && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare queue name=transactions_queue durable=true && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare binding source=provider_health destination=provider_health_updates routing_key="provider.health.updates" && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare binding source=transactions_exchange destination=transactions_queue routing_key="transactions"
+```
+
+
+2. Start remaining  containers:
+```bash
+docker compose up -d
 ```
 
 4. Verify services are running:
