@@ -261,4 +261,4 @@ volumes:
 networks:
   inferoute-net:
     name: inferoute-net
-    driver: bridge 
+    external: true 
