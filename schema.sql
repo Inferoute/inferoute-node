@@ -3,20 +3,20 @@ CREATE DATABASE IF NOT EXISTS inferoute;
 USE inferoute;
 
 -- Drop existing tables if they exist (in correct order)
+DROP TABLE IF EXISTS model_pricing_data;
+DROP TABLE IF EXISTS provider_cheating_incidents;
+DROP TABLE IF EXISTS provider_health_history;
 DROP TABLE IF EXISTS transactions;
 DROP TABLE IF EXISTS hmacs;
 DROP TABLE IF EXISTS provider_models;
 DROP TABLE IF EXISTS providers;
+DROP TABLE IF EXISTS consumer_models;
+DROP TABLE IF EXISTS consumers;
 DROP TABLE IF EXISTS balances;
 DROP TABLE IF EXISTS api_keys;
-DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS provider_health_history;
-DROP TABLE IF EXISTS system_settings;
-DROP TABLE IF EXISTS consumers;
-DROP TABLE IF EXISTS consumer_models;
 DROP TABLE IF EXISTS user_settings;
-DROP TABLE IF EXISTS provider_cheating_incidents;
-DROP TABLE IF EXISTS model_pricing_data;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS system_settings;
 
 -- Create system_settings table
 CREATE TABLE IF NOT EXISTS system_settings (
