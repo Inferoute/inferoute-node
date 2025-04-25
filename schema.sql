@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
     setting_value STRING NOT NULL,
     description STRING NOT NULL,
     created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp()
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp()
 );
 
 -- Insert default system settings
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username STRING UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp()
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp()
 );
 
 -- User Settings table
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
     max_output_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
     default_to_own_models BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     UNIQUE (user_id),
     CHECK (max_input_price_tokens >= 0),
     CHECK (max_output_price_tokens >= 0)
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS providers (
     memory_total INTEGER,
     memory_free INTEGER,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 -- Add index for faster querying of non-paused providers
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS consumers (
     max_input_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
     max_output_price_tokens DECIMAL(18,8) NOT NULL DEFAULT 1.0,
     created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     CHECK (max_input_price_tokens >= 0),
     CHECK (max_output_price_tokens >= 0)
 );
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     description STRING,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     CHECK ((provider_id IS NULL AND consumer_id IS NOT NULL) OR (provider_id IS NOT NULL AND consumer_id IS NULL)),
     INDEX (provider_id),
     INDEX (consumer_id),
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS balances (
     available_amount DECIMAL(18,8) NOT NULL DEFAULT 0,
     held_amount DECIMAL(18,8) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     CHECK (available_amount >= 0),
     CHECK (held_amount >= 0)
 );
@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS provider_models (
     model_created TIMESTAMP,
     model_owned_by STRING,
     created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     UNIQUE (provider_id, model_name),
     INDEX (provider_id)
 );
@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     service_fee DECIMAL(18,8),
     status STRING NOT NULL CHECK (status IN ('pending', 'payment', 'completed', 'failed', 'cheating_detected', 'canceled')),
     created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     INDEX (consumer_id),
     INDEX (provider_id),
     INDEX (hmac)
@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS provider_health_history (
     memory_total INTEGER,
     health_check_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     INDEX (provider_id, health_check_time DESC)
 );
 
@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS consumer_models (
     max_input_price_tokens DECIMAL(18,8) NOT NULL,
     max_output_price_tokens DECIMAL(18,8) NOT NULL,
     created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     UNIQUE (consumer_id, model_name),
     CHECK (max_input_price_tokens >= 0),
     CHECK (max_output_price_tokens >= 0)
@@ -232,7 +232,7 @@ CREATE TABLE IF NOT EXISTS model_pricing_data (
     volume_input INTEGER NOT NULL DEFAULT 0,
     volume_output INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT current_timestamp(),
-    updated_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     INDEX (model_name, timestamp DESC)
 );
 
@@ -250,61 +250,6 @@ VALUES (
     42000, 42000
 )
 ON CONFLICT DO NOTHING;
-
--- Create triggers to update updated_at timestamps
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = current_timestamp();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Apply the trigger to all tables
-CREATE TRIGGER update_users_updated_at
-    BEFORE UPDATE ON users
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER update_providers_updated_at
-    BEFORE UPDATE ON providers
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER update_consumers_updated_at
-    BEFORE UPDATE ON consumers
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER update_api_keys_updated_at
-    BEFORE UPDATE ON api_keys
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER update_balances_updated_at
-    BEFORE UPDATE ON balances
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER update_provider_models_updated_at
-    BEFORE UPDATE ON provider_models
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER update_transactions_updated_at
-    BEFORE UPDATE ON transactions
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER update_provider_health_history_updated_at
-    BEFORE UPDATE ON provider_health_history
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER update_consumer_models_updated_at
-    BEFORE UPDATE ON consumer_models
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
 
 CREATE INDEX IF NOT EXISTS idx_provider_cheating_incidents_provider_id ON provider_cheating_incidents(provider_id);
 CREATE INDEX IF NOT EXISTS idx_provider_cheating_incidents_transaction_hmac ON provider_cheating_incidents(transaction_hmac);
