@@ -42,8 +42,26 @@ docker exec -i inferoute-node-cockroachdb-1 cockroach sql --insecure -e "SHOW DA
 
 docker compose up -d rabbitmq
 
+## Create users
 ```bash
-docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare exchange name=provider_health type=topic durable=true && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare exchange name=transactions_exchange type=topic durable=true && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare queue name=provider_health_updates durable=true && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare queue name=transactions_queue durable=true && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare binding source=provider_health destination=provider_health_updates routing_key="provider.health.updates" && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin declare binding source=transactions_exchange destination=transactions_queue routing_key="transactions"
+docker exec inferoute-node-rabbitmq-1 rabbitmqctl add_user inferoute Nightshade900! && docker exec inferoute-node-rabbitmq-1 rabbitmqctl set_permissions -p / inferoute ".*" ".*" ".*" && docker exec inferoute-node-rabbitmq-1 rabbitmqctl set_user_tags inferoute administrator
+```
+
+## Create queus
+```bash
+docker exec inferoute-node-rabbitmq-1 rabbitmqadmin --username=inferoute --password=Nightshade900! declare exchange name=provider_health type=topic durable=tr
+ue && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin --username=inferoute --password=Nightshade900! declare exchange name=transactions_exchange type=topic durable=true && docker exec inferoute-node-r
+abbitmq-1 rabbitmqadmin --username=inferoute --password=Nightshade900! declare queue name=provider_health_updates durable=true && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin --username=inferoute -
+-password=Nightshade900! declare queue name=transactions_queue durable=true && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin --username=inferoute --password=Nightshade900! declare binding source=pro
+vider_health destination=provider_health_updates routing_key="provider.health.updates" && docker exec inferoute-node-rabbitmq-1 rabbitmqadmin --username=inferoute --password=Nightshade900! declare binding
+ source=transactions_exchange destination=transactions_queue routing_key="transactions""
+```
+
+## Conirm queues exist
+
+```bash
+ocker exec inferoute-node-rabbitmq-1 rabbitmqadmin --username=inferoute --password=Nightshade900! list queues && echo "=== Exchanges ===" && docker exec inferoute
+-node-rabbitmq-1 rabbitmqadmin --username=inferoute --password=Nightshade900! list exchanges
 ```
 
 

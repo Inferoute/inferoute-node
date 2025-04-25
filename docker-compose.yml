@@ -234,6 +234,16 @@ services:
       - inferoute-net
     restart: unless-stopped
 
+  # API Testing container
+  api-testing:
+    image: alpine:3.19
+    command: tail -f /dev/null  # Keep container running
+    networks:
+      - inferoute-net
+    environment:
+      <<: *common-variables
+    restart: unless-stopped
+
 volumes:
   cockroach-data:
   rabbitmq-data:
