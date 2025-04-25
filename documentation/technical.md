@@ -339,7 +339,239 @@ POST /api/auth/release
 - Validation process optimized to minimize bcrypt comparisons
 - Only shows plaintext key once during creation
 
-## 4.  Provider Management Service (Go)
+## 4. Backend-For-Frontend Service (Go) - TO BE REVIEW and CREATED
+
+- **Role:** Provides a secure bridge between frontend applications and internal services. Handles frontend-specific concerns and securely manages internal API key access.
+
+- **Security Features:**
+  - Stores internal API key securely
+  - Implements rate limiting per IP
+  - CAPTCHA verification for registration
+  - CORS configuration for frontend domains
+  - Request validation and sanitization
+  - JWT-based session management for authenticated users
+
+- **Endpoints (HTTP/JSON):**
+
+1. **POST /api/public/register**
+  - Public endpoint for user registration
+  - Protected by rate limiting and CAPTCHA
+  - Example Request:
+    ```json
+    {
+      "username": "new_user",
+      "captcha_token": "google-recaptcha-token"
+    }
+    ```
+  - Returns:
+    ```json
+    {
+      "user": {
+        "id": "uuid",
+        "username": "new_user",
+        "created_at": "timestamp",
+        "updated_at": "timestamp"
+      }
+    }
+    ```
+
+2. **POST /api/public/consumer**
+  - Create a consumer entity for authenticated user
+  - Requires valid user session
+  - Example Request:
+    ```json
+    {
+      "name": "My Consumer Account",
+      "max_input_price_tokens": 0.0002,
+      "max_output_price_tokens": 0.0003
+    }
+    ```
+  - Returns created consumer entity with ID
+
+3. **POST /api/public/provider**
+  - Create a provider entity for authenticated user
+  - Requires valid user session
+  - Example Request:
+    ```json
+    {
+      "name": "My Provider Service",
+      "api_url": "https://provider-api.example.com"
+    }
+    ```
+  - Returns created provider entity with ID
+
+4. **POST /api/public/consumer/{consumer_id}/api-key**
+  - Create API key for a consumer
+  - Requires valid user session and consumer ownership
+  - Example Request:
+    ```json
+    {
+      "description": "Production API Key"
+    }
+    ```
+  - Returns:
+    ```json
+    {
+      "api_key": "sk-...",  // Only time plaintext key is shown
+      "description": "Production API Key",
+      "created_at": "timestamp"
+    }
+    ```
+
+5. **POST /api/public/provider/{provider_id}/api-key**
+  - Create API key for a provider
+  - Requires valid user session and provider ownership
+  - Example Request:
+    ```json
+    {
+      "description": "Provider Production Key"
+    }
+    ```
+  - Returns:
+    ```json
+    {
+      "api_key": "pk-...",  // Only time plaintext key is shown
+      "description": "Provider Production Key",
+      "created_at": "timestamp"
+    }
+    ```
+
+6. **GET /api/public/user/stats**
+  - Get authenticated user's statistics
+  - Requires valid user session
+  - BFF verifies JWT and adds internal key
+  - Example Response:
+    ```json
+    {
+      "consumer_stats": {
+        "total_requests": 1500,
+        "total_spend": 125.50,
+        "average_latency": 250,
+        "most_used_models": [
+          {
+            "model": "llama2",
+            "request_count": 800
+          }
+        ]
+      },
+      "provider_stats": {
+        "total_served": 5000,
+        "total_earnings": 450.75,
+        "average_tps": 15.5,
+        "model_performance": [
+          {
+            "model": "llama2",
+            "average_tps": 16.2,
+            "uptime_percentage": 99.5
+          }
+        ]
+      }
+    }
+    ```
+
+7. **GET /api/public/user/consumers**
+  - List all consumers owned by authenticated user
+  - Requires valid user session
+  - BFF validates JWT and forwards request with internal key
+
+8. **GET /api/public/user/providers**
+  - List all providers owned by authenticated user
+  - Requires valid user session
+  - BFF validates JWT and forwards request with internal key
+
+9. **GET /api/public/consumer/{consumer_id}/transactions**
+  - Get consumer's transaction history
+  - Requires valid user session and consumer ownership
+  - Supports pagination and filtering
+  - Example Request:
+    ```
+    GET /api/public/consumer/123/transactions?page=1&limit=20&start_date=2024-01-01
+    ```
+
+10. **GET /api/public/provider/{provider_id}/health-history**
+    - Get provider's health history
+    - Requires valid user session and provider ownership
+    - Supports time range filtering
+    - Example Request:
+      ```
+      GET /api/public/provider/123/health-history?days=30
+      ```
+
+**Authentication Flow:**
+1. Frontend includes JWT in Authorization header:
+   ```
+   Authorization: Bearer <jwt_token>
+   ```
+2. BFF validates JWT token and extracts user information
+3. BFF verifies resource ownership if applicable
+4. BFF adds internal key and forwards to appropriate service
+5. BFF formats response for frontend consumption
+
+**Error Handling:**
+- 401 Unauthorized: Invalid or expired JWT
+- 403 Forbidden: Valid JWT but unauthorized for resource
+- 404 Not Found: Resource doesn't exist
+- 400 Bad Request: Invalid parameters
+- 500 Internal Server Error: Backend service errors
+
+**Security Considerations:**
+- JWT validation on every request
+- Resource ownership verification
+- Rate limiting on intensive endpoints
+- Response sanitization
+- Error message sanitization (no internal details leaked)
+- CORS configuration for frontend domains
+
+**Frontend Integration:**
+```typescript
+// Example frontend code
+async function getUserStats() {
+  const response = await fetch('/api/public/user/stats', {
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('jwt')}`,
+      'Content-Type': 'application/json'
+    }
+  });
+  if (!response.ok) {
+    // Handle error (expired token, unauthorized, etc)
+    if (response.status === 401) {
+      // Redirect to login
+    }
+  }
+  return await response.json();
+}
+```
+
+**Key Features:**
+- Secure handling of internal API key
+- Frontend-specific error messages and formatting
+- Request validation and transformation
+- Rate limiting per IP address (1 request per minute for registration)
+- CAPTCHA verification for abuse prevention
+- Proper error handling with user-friendly messages
+- Logging of registration attempts (successful and failed)
+- Session management for authenticated users
+- Ownership validation for entity operations
+- One-time display of generated API keys
+
+**Security Workflow:**
+1. User registers via `/api/public/register`
+2. User receives session token
+3. Subsequent requests require valid session token
+4. BFF validates ownership before entity/key operations
+5. BFF adds internal key to requests to auth service
+6. API keys are only shown once at creation
+
+**Architecture:**
+- Built using Echo framework
+- Implements graceful shutdown
+- Runs on port 8090
+- Uses environment variables for configuration
+- Supports horizontal scaling
+- Implements session management
+- Handles all frontend-to-backend communication securely
+
+## 5.  Provider Management Service (Go)
 
  - **Role:** Provides APIs for providers to manage their models, availability status, and health reporting. Acts as the entry point for provider health updates which are then published to RabbitMQ for processing by the provider-health service
 
@@ -415,7 +647,7 @@ POST /api/auth/release
       - Success status and message
 
 
-## 5.  Provider Communication Service (Go) - DONE!!!!
+## 6.  Provider Communication Service (Go) - DONE!!!!
 
 - **Role:** Dispatches consumer requests (with associated HMACs) to providers and collects responses. Also provides an API for providers to validate HMACs.
 

@@ -11,7 +11,7 @@ Inferoute Node Application
 ### Start all services
 
 1. First, create a `.env` file in the root directory with your configuration (see `.env.example`)
-2. docker network create inferoute-net  
+2. docker network create --subnet=172.18.0.0/12 inferoute-net  
 3. docker compose up -d nginx-proxy acme-companion
  
 
