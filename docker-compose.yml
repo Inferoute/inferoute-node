@@ -197,7 +197,7 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
       - ./docker/files/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-      - ./docker/files/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./docker/files/rabbitmq/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
     networks:
       - sentnl-net
     restart: unless-stopped
@@ -206,6 +206,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    entrypoint: >
+      /bin/sh -c "
+        chmod +x /docker-entrypoint-initdb.d/init.sh &&
+        docker-entrypoint.sh rabbitmq-server &
+        sleep 10 &&
+        /docker-entrypoint-initdb.d/init.sh
+      "
 
 volumes:
   cockroach-data:
