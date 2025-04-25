@@ -6,7 +6,7 @@
   "users": [
     {
       "name": "inferoute",
-      "password_hash": "Nightshade900!",
+      "password_hash": "E+d/z+VCyI5ZPwq+OyC3M5RR2WGDQyLWVKoZLGvPRZs=",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
       "tags": "administrator"
     }
