@@ -17,11 +17,46 @@ x-common-variables: &common-variables
   RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
   INTERNAL_API_KEY: ${INTERNAL_API_KEY:-klondikee}
   INTERNAL_NETWORK_CIDR: ${INTERNAL_NETWORK_CIDR:-172.16.0.0/12}
-  VIRTUAL_HOST: core.infereoute.com
-  LETSENCRYPT_HOST: core.infereoute.com
+  VIRTUAL_HOST: ${VIRTUAL_HOST:-core.inferoute.com}
+  LETSENCRYPT_HOST: ${VIRTUAL_HOST:-core.inferoute.com}
   LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-your-email@example.com}
 
 services:
+  # Nginx Proxy for SSL termination
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - conf:/etc/nginx/conf.d
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - certs:/etc/nginx/certs:ro
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+
+  # Let's Encrypt companion
+  acme-companion:
+    image: nginxproxy/acme-companion
+    container_name: nginx-proxy-acme
+    volumes_from:
+      - nginx-proxy
+    volumes:
+      - certs:/etc/nginx/certs:rw
+      - acme:/etc/acme.sh
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - DEFAULT_EMAIL=${LETSENCRYPT_EMAIL:-your-email@example.com}
+    networks:
+      - inferoute-net
+    depends_on:
+      - nginx-proxy
+    restart: unless-stopped
+
   nginx:
     build:
       context: .
@@ -31,6 +66,7 @@ services:
     expose:
       - "80"
     depends_on:
+      - nginx-proxy
       - orchestrator
       - auth
       - provider-management
@@ -38,7 +74,7 @@ services:
       - provider-health
       - model-pricing
     networks:
-      - sentnl-net
+      - inferoute-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
@@ -60,7 +96,7 @@ services:
       - cockroachdb
       - rabbitmq
     networks:
-      - sentnl-net
+      - inferoute-net
     restart: unless-stopped
 
   auth:
@@ -78,7 +114,7 @@ services:
     depends_on:
       - cockroachdb
     networks:
-      - sentnl-net
+      - inferoute-net
     restart: unless-stopped
 
   provider-management:
@@ -95,7 +131,7 @@ services:
       - cockroachdb
       - rabbitmq
     networks:
-      - sentnl-net
+      - inferoute-net
     restart: unless-stopped
 
   provider-communication:
@@ -112,7 +148,7 @@ services:
       - cockroachdb
       - rabbitmq
     networks:
-      - sentnl-net
+      - inferoute-net
     restart: unless-stopped
 
   provider-health:
@@ -129,7 +165,7 @@ services:
       - cockroachdb
       - rabbitmq
     networks:
-      - sentnl-net
+      - inferoute-net
     restart: unless-stopped
 
   model-pricing:
@@ -145,7 +181,7 @@ services:
     depends_on:
       - cockroachdb
     networks:
-      - sentnl-net
+      - inferoute-net
     restart: unless-stopped
 
   scheduler:
@@ -159,7 +195,7 @@ services:
       - model-pricing
       - provider-health
     networks:
-      - sentnl-net
+      - inferoute-net
     restart: unless-stopped
 
   # CockroachDB container
@@ -176,7 +212,7 @@ services:
     volumes:
       - cockroach-data:/cockroach/cockroach-data
     networks:
-      - sentnl-net
+      - inferoute-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
@@ -200,7 +236,7 @@ services:
       - rabbitmq-data:/var/lib/rabbitmq
       - ./docker/files/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     networks:
-      - sentnl-net
+      - inferoute-net
     restart: unless-stopped
     ulimits:
       nofile:
@@ -218,7 +254,13 @@ services:
 volumes:
   cockroach-data:
   rabbitmq-data:
+  conf:
+  vhost:
+  html:
+  certs:
+  acme:
 
 networks:
-  sentnl-net:
+  inferoute-net:
+    name: inferoute-net
     driver: bridge 
