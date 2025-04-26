@@ -46,30 +46,6 @@ services:
       - inferoute-net
     restart: unless-stopped
 
-  nginx:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.nginx
-    container_name: nginx
-    environment:
-      <<: *common-variables
-    expose:
-      - "80"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.nginx.rule=Host(`core.inferoute.com`)"
-      - "traefik.http.routers.nginx.entrypoints=websecure"
-      - "traefik.http.routers.nginx.tls.certresolver=letsencrypt"
-      - "traefik.http.services.nginx.loadbalancer.server.port=80"
-    networks:
-      - inferoute-net
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
   orchestrator:
     build:
       context: .
