@@ -63,6 +63,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.nginx
+    container_name: nginx
     environment:
       <<: *common-variables
       VIRTUAL_HOST: core.inferoute.com
@@ -90,6 +91,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.orchestrator
+    container_name: orchestrator
     env_file: .env
     expose:
       - "8080"
@@ -109,6 +111,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.auth
+    container_name: auth
     env_file: .env
     expose:
       - "8081"
@@ -129,6 +132,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.provider-management
+    container_name: provider-management
     env_file: .env
     expose:
       - "8082"
@@ -148,6 +152,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.provider-communication
+    container_name: provider-communication
     env_file: .env
     expose:
       - "8083"
@@ -167,6 +172,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.provider-health
+    container_name: provider-health
     env_file: .env
     expose:
       - "8084"
@@ -186,6 +192,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.model-pricing
+    container_name: model-pricing
     env_file: .env
     expose:
       - "8085"
@@ -204,6 +211,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.scheduler
+    container_name: scheduler
     env_file: .env
     environment:
       <<: *common-variables
@@ -216,6 +224,7 @@ services:
 
   # CockroachDB container
   cockroachdb:
+    container_name: cockroachdb
     image: cockroachdb/cockroach:v23.1.11
     command: start --insecure --advertise-addr=${WIREGUARD_IP}:26257 --join=${WIREGUARD_IP}:26257 --cache=.25 --max-sql-memory=.25
     environment:
@@ -238,6 +247,7 @@ services:
 
   # RabbitMQ container
   rabbitmq:
+    container_name: rabbitmq
     image: rabbitmq:3.12-management-alpine
     expose:
       - "5672"    # AMQP port
@@ -254,6 +264,7 @@ services:
 
   # API Testing container
   api-testing:
+    container_name: api-testing
     image: alpine:3.19
     command: tail -f /dev/null  # Keep container running
     networks:
