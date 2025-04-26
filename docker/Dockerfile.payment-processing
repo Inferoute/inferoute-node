@@ -1,0 +1,41 @@
+FROM golang:1.24-alpine AS builder
+
+# Install necessary build tools
+RUN apk add --no-cache git ca-certificates tzdata
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /go/bin/app ./cmd/payment-processing
+
+# Use a small alpine image for the final image
+FROM alpine:3.18
+
+# Install necessary runtime packages
+RUN apk --no-cache add ca-certificates tzdata
+
+# Create a non-root user to run the application
+RUN adduser -D -g '' appuser
+
+# Copy the binary and .env from the builder stage
+COPY --from=builder /go/bin/app /app
+COPY --from=builder /app/.env /.env
+
+# Set ownership of the application binary and .env
+RUN chown appuser:appuser /app /.env
+
+# Use the non-root user
+USER appuser
+
+# Command to run the application
+CMD ["/app"] 
