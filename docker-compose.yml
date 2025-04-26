@@ -37,6 +37,7 @@ services:
       - /var/run/docker.sock:/tmp/docker.sock:ro
     environment:
       - DEFAULT_HOST=core.inferoute.com
+      - HTTPS_METHOD=redirect
     networks:
       - inferoute-net
     restart: unless-stopped
@@ -63,11 +64,14 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.nginx
-    container_name: nginx
+    container_name: nginx-core-inferoute
     environment:
       <<: *common-variables
       VIRTUAL_HOST: core.inferoute.com
       VIRTUAL_PORT: 80
+      HTTPS_METHOD: redirect
+      CERT_NAME: core.inferoute.com
+      NETWORK_ACCESS: internal
     expose:
       - "80"
     depends_on:
