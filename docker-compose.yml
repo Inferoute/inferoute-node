@@ -18,11 +18,13 @@ x-common-variables: &common-variables
   VIRTUAL_HOST: ${VIRTUAL_HOST:-core.inferoute.com}
   LETSENCRYPT_HOST: ${VIRTUAL_HOST:-core.inferoute.com}
   LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-your-email@example.com}
+  VIRTUAL_PATH: ${VIRTUAL_PATH:-/}
+
 
 services:
   # Nginx Proxy for SSL termination
   nginx-proxy:
-    image: nginxproxy/nginx-proxy:alpine
+    image: nginxproxy/nginx-proxy:1.7
     container_name: nginx-proxy
     ports:
       - "80:80"
@@ -33,6 +35,8 @@ services:
       - html:/usr/share/nginx/html
       - certs:/etc/nginx/certs:ro
       - /var/run/docker.sock:/tmp/docker.sock:ro
+    environment:
+      - DEFAULT_HOST=core.inferoute.com
     networks:
       - inferoute-net
     restart: unless-stopped
@@ -61,6 +65,8 @@ services:
       dockerfile: docker/Dockerfile.nginx
     environment:
       <<: *common-variables
+      VIRTUAL_HOST: core.inferoute.com
+      VIRTUAL_PATH: /
     expose:
       - "80"
     depends_on:
@@ -75,7 +81,7 @@ services:
       - inferoute-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -90,6 +96,8 @@ services:
     environment:
       <<: *common-variables
       SERVER_PORT: 8080
+      VIRTUAL_HOST: core.inferoute.com
+      VIRTUAL_PATH: /api/orchestrator/
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -109,6 +117,8 @@ services:
       SERVER_PORT: 8081
       AUTH_HMACSECRET: ${AUTH_HMACSECRET:-your-hmac-secret-key}
       AUTH_TOKENDURATION: ${AUTH_TOKENDURATION:-60}
+      VIRTUAL_HOST: core.inferoute.com
+      VIRTUAL_PATH: /api/auth/
     depends_on:
       - cockroachdb
     networks:
@@ -125,6 +135,8 @@ services:
     environment:
       <<: *common-variables
       SERVER_PORT: 8082
+      VIRTUAL_HOST: core.inferoute.com
+      VIRTUAL_PATH: /api/provider/
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -142,6 +154,8 @@ services:
     environment:
       <<: *common-variables
       SERVER_PORT: 8083
+      VIRTUAL_HOST: core.inferoute.com
+      VIRTUAL_PATH: /api/provider/health/
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -159,6 +173,8 @@ services:
     environment:
       <<: *common-variables
       SERVER_PORT: 8084
+      VIRTUAL_HOST: core.inferoute.com
+      VIRTUAL_PATH: /api/provider-health/
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -176,6 +192,8 @@ services:
     environment:
       <<: *common-variables
       SERVER_PORT: 8085
+      VIRTUAL_HOST: core.inferoute.com
+      VIRTUAL_PATH: /api/pricing/
     depends_on:
       - cockroachdb
     networks:
