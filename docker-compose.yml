@@ -14,11 +14,7 @@ x-common-variables: &common-variables
   RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-Nightshade900!}
   RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
   INTERNAL_API_KEY: ${INTERNAL_API_KEY:-klondikee}
-  INTERNAL_NETWORK_CIDR: ${INTERNAL_NETWORK_CIDR:-172.16.0.0/12}
-  VIRTUAL_HOST: ${VIRTUAL_HOST:-core.inferoute.com}
-  LETSENCRYPT_HOST: ${VIRTUAL_HOST:-core.inferoute.com}
-  LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-your-email@example.com}
-  VIRTUAL_PATH: ${VIRTUAL_PATH:-/}
+  INTERNAL_NETWORK_CIDR: ${INTERNAL_NETWORK_CIDR:-172.18.0.0/12}
 
 
 services:
@@ -52,8 +48,6 @@ services:
       - certs:/etc/nginx/certs:rw
       - acme:/etc/acme.sh
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      - DEFAULT_EMAIL=${LETSENCRYPT_EMAIL:-your-email@example.com}
     networks:
       - inferoute-net
     depends_on:
@@ -72,6 +66,8 @@ services:
       HTTPS_METHOD: redirect
       CERT_NAME: core.inferoute.com
       NETWORK_ACCESS: internal
+      LETSENCRYPT_HOST: core.inferoute.com
+      LETSENCRYPT_EMAIL: charles@inferoute.com
     expose:
       - "80"
     depends_on:
