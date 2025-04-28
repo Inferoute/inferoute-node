@@ -10,23 +10,8 @@ fi
 CONSUMER_USERNAME=$1
 PROVIDER_USERNAME=$2
 MAX_RETRIES=5
-TRAEFIK_API_URL="http://traefik:8080"  # Traefik's API port for health checks
 BASE_URL="http://traefik"  # For actual API calls
 
-# Function to check if service is reachable
-wait_for_service() {
-    echo "Checking DNS resolution and service availability..."
-    for i in $(seq 1 $MAX_RETRIES); do
-        if curl -s -f -o /dev/null "$TRAEFIK_API_URL/api/http/routers"; then
-            echo "Service is reachable!"
-            return 0
-        fi
-        echo "Attempt $i/$MAX_RETRIES: Service not ready yet, waiting..."
-        sleep 3
-    done
-    echo "Service not reachable after $MAX_RETRIES attempts"
-    return 1
-}
 
 # Function to make API calls with retries
 make_request() {
