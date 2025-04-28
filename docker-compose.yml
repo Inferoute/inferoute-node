@@ -89,12 +89,6 @@ services:
       SERVER_PORT: 8081
       AUTH_HMACSECRET: ${AUTH_HMACSECRET}
       AUTH_TOKENDURATION: ${AUTH_TOKENDURATION}
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.auth.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/auth`)"
-      - "traefik.http.routers.auth.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
-      - "traefik.http.services.auth.loadbalancer.server.port=8081"
-      - "traefik.http.routers.auth.tls=${ENVIRONMENT:-development}=production"
     depends_on:
       - cockroachdb
       - rabbitmq
