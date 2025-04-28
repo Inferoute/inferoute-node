@@ -10,6 +10,7 @@ fi
 CONSUMER_USERNAME=$1
 PROVIDER_USERNAME=$2
 MAX_RETRIES=5
+TRAEFIK_API_URL="http://traefik:8080"  # Traefik's API port for health checks
 BASE_URL="http://traefik"  # For actual API calls
 
 
@@ -49,8 +50,6 @@ make_request() {
     exit 1
 }
 
-# Wait for service to be available
-wait_for_service || exit 1
 
 # Create first user (consumer)
 echo "\nCreating consumer user ($CONSUMER_USERNAME)..."
