@@ -32,15 +32,17 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=inferoute-net"
       - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
       - "--entrypoints.websecure.address=:443"
       - ${TRAEFIK_SSL_CONFIG}
     ports:
       - "80:80"
-      - "443:443"  # Always expose HTTPS port
-      - "8080:8080"  # Dashboard
+      - "443:443"
+      - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./certificates:/certificates  # Mount certificates directory
+      - traefik-certificates:/certificates
     networks:
       - inferoute-net
     restart: unless-stopped
