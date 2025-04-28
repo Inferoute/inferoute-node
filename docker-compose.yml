@@ -63,7 +63,7 @@ services:
       - "traefik.http.routers.orchestrator.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/orchestrator`)"
       - "traefik.http.routers.orchestrator.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
-      - "${TRAEFIK_ROUTER_TLS}"
+      - "traefik.http.routers.orchestrator.tls=${ENVIRONMENT:-development}=production"
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -94,7 +94,7 @@ services:
       - "traefik.http.routers.auth.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/auth`)"
       - "traefik.http.routers.auth.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.auth.loadbalancer.server.port=8081"
-      - "${TRAEFIK_ROUTER_TLS}"
+      - "traefik.http.routers.auth.tls=${ENVIRONMENT:-development}=production"
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -120,7 +120,7 @@ services:
       - "traefik.http.routers.provider-management.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/provider`)"
       - "traefik.http.routers.provider-management.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
-      - "${TRAEFIK_ROUTER_TLS}"
+      - "traefik.http.routers.provider-management.tls=${ENVIRONMENT:-development}=production"
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -166,7 +166,7 @@ services:
       - "traefik.http.routers.provider-health.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/health/providers`)"
       - "traefik.http.routers.provider-health.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
-      - "${TRAEFIK_ROUTER_TLS}"
+      - "traefik.http.routers.provider-health.tls=${ENVIRONMENT:-development}=production"
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -192,7 +192,7 @@ services:
       - "traefik.http.routers.model-pricing.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/model-pricing`)"
       - "traefik.http.routers.model-pricing.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
-      - "${TRAEFIK_ROUTER_TLS}"
+      - "traefik.http.routers.model-pricing.tls=${ENVIRONMENT:-development}=production"
     depends_on:
       - cockroachdb
     networks:
