@@ -292,12 +292,12 @@ services:
     environment:
       <<: *common-variables
     volumes:
-      - ./scripts/create_test_users.sh:/scripts/create_test_users.sh
+      - ./docker/files/api-testing/create_test_users.sh:/create_test_users.sh
     restart: unless-stopped
     entrypoint: |
       /bin/sh -c "
       apk add --no-cache curl nano jq
-      chmod +x /scripts/create_test_users.sh
+      chmod +x /create_test_users.sh
       tail -f /dev/null
       "
 
