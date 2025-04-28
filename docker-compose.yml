@@ -27,18 +27,13 @@ services:
     image: traefik:v2.10
     container_name: traefik
     command:
-      - "/bin/sh"
-      - "-c"
-      - |
-        echo "TRAEFIK_SSL_CONFIG: ${TRAEFIK_SSL_CONFIG}"
-        traefik \
-        --api.insecure=true \
-        --providers.docker=true \
-        --providers.docker.exposedbydefault=false \
-        --providers.docker.network=inferoute-net \
-        --entrypoints.web.address=:80 \
-        --entrypoints.websecure.address=:443 \
-        ${TRAEFIK_SSL_CONFIG}
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=inferoute-net"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - ${TRAEFIK_SSL_CONFIG}
     ports:
       - "80:80"
       - "443:443"  # Always expose HTTPS port
@@ -92,8 +87,8 @@ services:
     environment:
       <<: *common-variables
       SERVER_PORT: 8081
-      AUTH_HMACSECRET: ${AUTH_HMACSECRET:-your-hmac-secret-key}
-      AUTH_TOKENDURATION: ${AUTH_TOKENDURATION:-60}
+      AUTH_HMACSECRET: ${AUTH_HMACSECRET}
+      AUTH_TOKENDURATION: ${AUTH_TOKENDURATION}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.auth.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/auth`)"
@@ -102,6 +97,7 @@ services:
       - "${TRAEFIK_ROUTER_TLS}"
     depends_on:
       - cockroachdb
+      - rabbitmq
     networks:
       - inferoute-net
     restart: unless-stopped
