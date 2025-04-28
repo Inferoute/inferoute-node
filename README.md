@@ -37,7 +37,11 @@ docker compose --env-file docker/env/production.env build
 ## Start cockcroachdb 
 
 ```bash
+Dev:
 docker compose --env-file docker/env/development.env up -d cockroachdb
+
+Production:
+docker compose --env-file docker/env/production.env up -d cockroachdb
 ```
 
 ```bash
@@ -56,8 +60,14 @@ docker exec -i cockroachdb cockroach sql --insecure -e "SHOW DATABASES;"
 ### 4. Initialise Rabbitmq
 
 ## Start rabbitmq
+
+
 ```bash
+Development:
 docker compose --env-file docker/env/development.env up -d rabbitmq 
+
+Production:
+docker compose --env-file docker/env/production.env up -d rabbitmq 
 ```
 
 ## Create users
@@ -65,7 +75,7 @@ docker compose --env-file docker/env/development.env up -d rabbitmq
 docker exec rabbitmq rabbitmqctl add_user inferoute Nightshade900! && docker exec rabbitmq rabbitmqctl set_permissions -p / inferoute ".*" ".*" ".*" && docker exec rabbitmq rabbitmqctl set_user_tags inferoute administrator
 ```
 
-## Create queus
+## Create queues
 ```bash
 docker exec rabbitmq rabbitmqadmin --username=inferoute --password=Nightshade900! declare exchange name=provider_health type=topic durable=true && docker exec rabbitmq rabbitmqadmin --username=inferoute --password=Nightshade900! declare exchange name=transactions_exchange type=topic durable=true && docker exec rabbitmq rabbitmqadmin --username=inferoute --password=Nightshade900! declare queue name=provider_health_updates durable=true && docker exec rabbitmq rabbitmqadmin --username=inferoute --password=Nightshade900! declare queue name=transactions_queue durable=true && docker exec rabbitmq rabbitmqadmin --username=inferoute --password=Nightshade900! declare binding source=provider_health destination=provider_health_updates routing_key="provider.health.updates" && docker exec rabbitmq rabbitmqadmin --username=inferoute --password=Nightshade900! declare binding source=transactions_exchange destination=transactions_queue routing_key="transactions"
 ```
@@ -80,7 +90,11 @@ docker exec rabbitmq rabbitmqadmin --username=inferoute --password=Nightshade900
 ### 5. Start remaining  containers:
 
 ```bash
+Develpoment:
 docker compose --env-file docker/env/development.env up 
+
+Production:
+docker compose --env-file docker/env/production.env up 
 ```
 
 4. Verify services are running:

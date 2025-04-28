@@ -39,7 +39,7 @@ services:
       - "8080:8080"  # Dashboard
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ${TRAEFIK_CERTS_VOLUME:-/dev/null:/dev/null}  # Default to no-op volume if not set
+      - ./certificates:/certificates  # Mount certificates directory
     networks:
       - inferoute-net
     restart: unless-stopped
