@@ -1,23 +1,24 @@
 # Common environment variables for all services
 x-common-variables: &common-variables
   ENVIRONMENT: ${ENVIRONMENT:-development}
-  SERVER_HOST: 0.0.0.0
-  DATABASE_HOST: cockroachdb
-  DATABASE_PORT: ${DATABASE_PORT:-26257}
-  DATABASE_USER: ${DATABASE_USER:-root}
-  DATABASE_PASSWORD: ${DATABASE_PASSWORD:-}
-  DATABASE_DBNAME: ${DATABASE_DBNAME:-inferoute}
-  DATABASE_SSLMODE: ${DATABASE_SSLMODE:-disable}
-  RABBITMQ_HOST: rabbitmq
-  RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
-  RABBITMQ_USER: ${RABBITMQ_USER:-inferoute}
-  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-Nightshade900!}
-  RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
-  INTERNAL_API_KEY: ${INTERNAL_API_KEY:-klondikee}
-  INTERNAL_NETWORK_CIDR: ${INTERNAL_NETWORK_CIDR:-172.18.0.0/12}
+  SERVER_HOST: ${SERVER_HOST}
+  DATABASE_HOST: ${DATABASE_HOST}
+  DATABASE_PORT: ${DATABASE_PORT}
+  DATABASE_USER: ${DATABASE_USER}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+  DATABASE_DBNAME: ${DATABASE_DBNAME}
+  DATABASE_SSLMODE: ${DATABASE_SSLMODE}
+  RABBITMQ_HOST: ${RABBITMQ_HOST}
+  RABBITMQ_PORT: ${RABBITMQ_PORT}
+  RABBITMQ_USER: ${RABBITMQ_USER}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+  RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+  INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+  INTERNAL_NETWORK_CIDR: ${INTERNAL_NETWORK_CIDR}
+  DOMAIN: ${DOMAIN}
   VIRTUAL_HOST: ${VIRTUAL_HOST:-core.inferoute.com}
   LETSENCRYPT_HOST: ${VIRTUAL_HOST:-core.inferoute.com}
-  LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-your-email@example.com}
+  LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-charles@inferoute.com}
 
 
 services:
@@ -29,19 +30,16 @@ services:
       - "--api.insecure=true"  # Enable dashboard
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=inferoute-net"
       - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-your-email@example.com}"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - ${TRAEFIK_SSL_CONFIG}  # Additional SSL config from env file
     ports:
       - "80:80"
-      - "443:443"
+      - "443:443"  # Always expose HTTPS port
       - "8080:8080"  # Dashboard
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - traefik-certificates:/letsencrypt
+      - ${TRAEFIK_CERTS_VOLUME:-/dev/null:/dev/null}  # Default to no-op volume if not set
     networks:
       - inferoute-net
     restart: unless-stopped
@@ -50,8 +48,10 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.orchestrator
+      args:
+        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: orchestrator
-    env_file: .env
+    env_file: docker/env/${ENVIRONMENT:-development}.env
     expose:
       - "8080"
     environment:
@@ -59,10 +59,10 @@ services:
       SERVER_PORT: 8080
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.orchestrator.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/orchestrator`)"
-      - "traefik.http.routers.orchestrator.entrypoints=websecure"
-      - "traefik.http.routers.orchestrator.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.orchestrator.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/orchestrator`)"
+      - "traefik.http.routers.orchestrator.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
+      - "${TRAEFIK_ROUTER_TLS}"
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -77,8 +77,10 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.auth
+      args:
+        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: auth
-    env_file: .env
+    env_file: docker/env/${ENVIRONMENT:-development}.env
     expose:
       - "8081"
     environment:
@@ -88,10 +90,10 @@ services:
       AUTH_TOKENDURATION: ${AUTH_TOKENDURATION:-60}
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.auth.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/auth`)"
-      - "traefik.http.routers.auth.entrypoints=websecure"
-      - "traefik.http.routers.auth.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.auth.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/auth`)"
+      - "traefik.http.routers.auth.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.auth.loadbalancer.server.port=8081"
+      - "${TRAEFIK_ROUTER_TLS}"
     depends_on:
       - cockroachdb
     networks:
@@ -102,8 +104,10 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.provider-management
+      args:
+        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: provider-management
-    env_file: .env
+    env_file: docker/env/${ENVIRONMENT:-development}.env
     expose:
       - "8082"
     environment:
@@ -111,10 +115,10 @@ services:
       SERVER_PORT: 8082
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.provider-mgmt.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/provider`)"
-      - "traefik.http.routers.provider-mgmt.entrypoints=websecure"
-      - "traefik.http.routers.provider-mgmt.tls.certresolver=letsencrypt"
-      - "traefik.http.services.provider-mgmt.loadbalancer.server.port=8082"
+      - "traefik.http.routers.provider-management.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/provider`)"
+      - "traefik.http.routers.provider-management.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
+      - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
+      - "${TRAEFIK_ROUTER_TLS}"
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -126,8 +130,10 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.provider-communication
+      args:
+        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: provider-communication
-    env_file: .env
+    env_file: docker/env/${ENVIRONMENT:-development}.env
     expose:
       - "8083"
     environment:
@@ -144,8 +150,10 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.provider-health
+      args:
+        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: provider-health
-    env_file: .env
+    env_file: docker/env/${ENVIRONMENT:-development}.env
     expose:
       - "8084"
     environment:
@@ -153,10 +161,10 @@ services:
       SERVER_PORT: 8084
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.provider-health.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/health/providers`)"
-      - "traefik.http.routers.provider-health.entrypoints=websecure"
-      - "traefik.http.routers.provider-health.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.provider-health.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/health/providers`)"
+      - "traefik.http.routers.provider-health.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
+      - "${TRAEFIK_ROUTER_TLS}"
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -168,8 +176,10 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.model-pricing
+      args:
+        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: model-pricing
-    env_file: .env
+    env_file: docker/env/${ENVIRONMENT:-development}.env
     expose:
       - "8085"
     environment:
@@ -177,10 +187,10 @@ services:
       SERVER_PORT: 8085
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.model-pricing.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/model-pricing`)"
-      - "traefik.http.routers.model-pricing.entrypoints=websecure"
-      - "traefik.http.routers.model-pricing.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.model-pricing.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/model-pricing`)"
+      - "traefik.http.routers.model-pricing.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
+      - "${TRAEFIK_ROUTER_TLS}"
     depends_on:
       - cockroachdb
     networks:
@@ -191,8 +201,10 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.scheduler
+      args:
+        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: scheduler
-    env_file: .env
+    env_file: docker/env/${ENVIRONMENT:-development}.env
     environment:
       <<: *common-variables
     depends_on:
@@ -206,8 +218,10 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.payment-processing
+      args:
+        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: payment-processing
-    env_file: .env
+    env_file: docker/env/${ENVIRONMENT:-development}.env
     environment:
       <<: *common-variables
       SERVER_PORT: 8086
@@ -222,12 +236,20 @@ services:
   cockroachdb:
     container_name: cockroachdb
     image: cockroachdb/cockroach:v23.1.11
-    command: start --insecure --advertise-addr=${WIREGUARD_IP}:26257 --join=${WIREGUARD_IP}:26257 --cache=.25 --max-sql-memory=.25
+    command: 
+      - start
+      - --insecure
+      - --advertise-addr
+      - ${WIREGUARD_IP}
+      - --join
+      - ${WIREGUARD_IP}
+      - --cache=.25
+      - --max-sql-memory=.25
     environment:
       WIREGUARD_IP: ${WIREGUARD_IP}
-      COCKROACH_JOIN_IPS: ${WIREGUARD_IP}:26257
+      COCKROACH_JOIN_IPS: ${WIREGUARD_IP}
     ports:
-      - "${WIREGUARD_IP}:26257:26257"  # SQL port, bind to WireGuard IP
+      - "${WIREGUARD_IP}:26257:26257"  # Bind to WireGuard IP
     expose:
       - "8080"    # UI port, only needed internally
     volumes:
@@ -249,9 +271,9 @@ services:
       - "5672"    # AMQP port
       - "15672"   # Management UI port
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-inferoute}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-Nightshade900!}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     networks:
@@ -267,7 +289,15 @@ services:
       - inferoute-net
     environment:
       <<: *common-variables
+    volumes:
+      - ./scripts/create_test_users.sh:/scripts/create_test_users.sh
     restart: unless-stopped
+    entrypoint: |
+      /bin/sh -c "
+      apk add --no-cache curl nano jq
+      chmod +x /scripts/create_test_users.sh
+      tail -f /dev/null
+      "
 
 volumes:
   cockroach-data:

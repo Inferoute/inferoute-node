@@ -10,7 +10,7 @@ fi
 CONSUMER_USERNAME=$1
 PROVIDER_USERNAME=$2
 MAX_RETRIES=5
-BASE_URL="http://nginx"  # Using internal Docker service name
+BASE_URL="http://traefik"  # Using internal Docker service name
 
 # Function to check if service is reachable
 wait_for_service() {
