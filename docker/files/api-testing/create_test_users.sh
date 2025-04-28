@@ -10,8 +10,7 @@ fi
 CONSUMER_USERNAME=$1
 PROVIDER_USERNAME=$2
 MAX_RETRIES=5
-TRAEFIK_API_URL="http://traefik:8080"  # Traefik's API port for health checks
-BASE_URL="http://traefik"  # For actual API calls
+BASE_URL="http://auth:8081"  # For actual API calls
 
 
 # Function to make API calls with retries

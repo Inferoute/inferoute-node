@@ -60,7 +60,7 @@ services:
       SERVER_PORT: 8080
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.orchestrator.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/orchestrator`)"
+      - "traefik.http.routers.orchestrator.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/v1`)"
       - "traefik.http.routers.orchestrator.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
       - "traefik.http.routers.orchestrator.tls=${ENVIRONMENT:-development}=production"
