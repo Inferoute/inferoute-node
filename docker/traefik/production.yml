@@ -1,0 +1,15 @@
+tls:
+  certificatesResolvers:
+    letsencrypt:
+      acme:
+        email: charles@inferoute.com
+        storage: /certificates/acme.json
+        httpChallenge:
+          entryPoint: web
+
+http:
+  middlewares:
+    redirect-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true 

@@ -22,10 +22,36 @@ x-common-variables: &common-variables
 
 
 services:
-  # Traefik reverse proxy
-  traefik:
+  # Traefik for development (HTTP only)
+  traefik-dev:
     image: traefik:v2.10
     container_name: traefik
+    profiles: ["development"]
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=inferoute-net"
+      - "--entrypoints.web.address=:80"
+      - "--log.level=DEBUG"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.api.entrypoints=web"
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+
+  # Traefik for production (with HTTPS)
+  traefik-prod:
+    image: traefik:v2.10
+    container_name: traefik
+    profiles: ["production"]
     command:
       - "--api.insecure=true"
       - "--providers.docker=true"
@@ -34,10 +60,10 @@ services:
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--log.level=DEBUG"
-      # Certificate resolver configuration (only in production)
-      - ${ENVIRONMENT:-development}=production --certificatesresolvers.letsencrypt.acme.email=charles@inferoute.com
-      - ${ENVIRONMENT:-development}=production --certificatesresolvers.letsencrypt.acme.storage=/certificates/acme.json
-      - ${ENVIRONMENT:-development}=production --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - "--certificatesresolvers.letsencrypt.acme.email=charles@inferoute.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/certificates/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
     ports:
       - "80:80"
       - "443:443"
@@ -47,20 +73,15 @@ services:
       - traefik-certificates:/certificates
     labels:
       - "traefik.enable=true"
-      # Development configuration (HTTP only)
-      - ${ENVIRONMENT:-development}=development traefik.http.routers.api.rule=HostRegexp(`{host:.+}`)
-      - ${ENVIRONMENT:-development}=development traefik.http.routers.api.entrypoints=web
-      - ${ENVIRONMENT:-development}=development traefik.http.routers.api.service=api@internal
-      # Production configuration (HTTPS redirect)
-      - ${ENVIRONMENT:-development}=production traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)
-      - ${ENVIRONMENT:-development}=production traefik.http.routers.http-catchall.entrypoints=web
-      - ${ENVIRONMENT:-development}=production traefik.http.routers.http-catchall.middlewares=redirect-to-https
-      - ${ENVIRONMENT:-development}=production traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
-      - ${ENVIRONMENT:-development}=production traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
-      - ${ENVIRONMENT:-development}=production traefik.http.routers.https-catchall.rule=HostRegexp(`{host:.+}`)
-      - ${ENVIRONMENT:-development}=production traefik.http.routers.https-catchall.entrypoints=websecure
-      - ${ENVIRONMENT:-development}=production traefik.http.routers.https-catchall.tls.certresolver=letsencrypt
-      - ${ENVIRONMENT:-development}=production traefik.http.routers.https-catchall.priority=1
+      - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+      - "traefik.http.routers.https-catchall.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.https-catchall.entrypoints=websecure"
+      - "traefik.http.routers.https-catchall.tls=true"
+      - "traefik.http.routers.https-catchall.tls.certresolver=letsencrypt"
     networks:
       - inferoute-net
     restart: unless-stopped
