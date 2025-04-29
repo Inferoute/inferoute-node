@@ -3,26 +3,11 @@ http:
     catchall:
       rule: "HostRegexp(`{host:.+}`)"
       entryPoints:
-        - web
+        - "web"
       middlewares:
         - redirect-to-https
       service: noop@internal
       priority: 1
-
-    catchall-https:
-      rule: "HostRegexp(`{host:.+}`)"
-      entryPoints:
-        - websecure
-      service: noop@internal
-      tls:
-        certResolver: letsencrypt
-      priority: 2
-
-  middlewares:
-    redirect-to-https:
-      redirectScheme:
-        scheme: https
-        permanent: true
 
 tls:
   certificatesResolvers:
@@ -32,3 +17,9 @@ tls:
         storage: /certificates/acme.json
         httpChallenge:
           entryPoint: web
+
+  # Specify domains for certificate
+  certificates:
+    - certificateResolver: letsencrypt
+      domains:
+        - main: "core.inferoute.com" 

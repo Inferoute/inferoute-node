@@ -91,10 +91,10 @@ docker exec rabbitmq rabbitmqadmin --username=inferoute --password=Nightshade900
 
 ```bash
 Develpoment:
-docker compose --env-file docker/env/development.env up 
+docker compose --env-file docker/env/development.env up -d
 
 Production:
-docker compose --env-file docker/env/production.env up 
+docker compose --env-file docker/env/production.env up -d
 ```
 
 4. Verify services are running:
