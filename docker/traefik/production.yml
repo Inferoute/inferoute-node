@@ -1,0 +1,25 @@
+http:
+  routers:
+    catchall:
+      rule: "HostRegexp(`{host:.+}`)"
+      entryPoints:
+        - "web"
+      middlewares:
+        - redirect-to-https
+      service: noop@internal
+      priority: 1
+
+tls:
+  certificatesResolvers:
+    letsencrypt:
+      acme:
+        email: charles@inferoute.com
+        storage: /certificates/acme.json
+        httpChallenge:
+          entryPoint: web
+
+  # Specify domains for certificate
+  certificates:
+    - certResolver: letsencrypt
+      domains:
+        - main: "core.inferoute.com" 
