@@ -31,10 +31,13 @@ services:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=inferoute-net"
-      - "--providers.file.directory=/etc/traefik/dynamic"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--log.level=DEBUG"
+      # Certificate resolver configuration (only in production)
+      - ${ENVIRONMENT:-development}=production --certificatesresolvers.letsencrypt.acme.email=charles@inferoute.com
+      - ${ENVIRONMENT:-development}=production --certificatesresolvers.letsencrypt.acme.storage=/certificates/acme.json
+      - ${ENVIRONMENT:-development}=production --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
     ports:
       - "80:80"
       - "443:443"
@@ -42,7 +45,22 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik-certificates:/certificates
-      - ./docker/traefik/${ENVIRONMENT:-development}.yml:/etc/traefik/dynamic/config.yml:ro
+    labels:
+      - "traefik.enable=true"
+      # Development configuration (HTTP only)
+      - ${ENVIRONMENT:-development}=development traefik.http.routers.api.rule=HostRegexp(`{host:.+}`)
+      - ${ENVIRONMENT:-development}=development traefik.http.routers.api.entrypoints=web
+      - ${ENVIRONMENT:-development}=development traefik.http.routers.api.service=api@internal
+      # Production configuration (HTTPS redirect)
+      - ${ENVIRONMENT:-development}=production traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)
+      - ${ENVIRONMENT:-development}=production traefik.http.routers.http-catchall.entrypoints=web
+      - ${ENVIRONMENT:-development}=production traefik.http.routers.http-catchall.middlewares=redirect-to-https
+      - ${ENVIRONMENT:-development}=production traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - ${ENVIRONMENT:-development}=production traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
+      - ${ENVIRONMENT:-development}=production traefik.http.routers.https-catchall.rule=HostRegexp(`{host:.+}`)
+      - ${ENVIRONMENT:-development}=production traefik.http.routers.https-catchall.entrypoints=websecure
+      - ${ENVIRONMENT:-development}=production traefik.http.routers.https-catchall.tls.certresolver=letsencrypt
+      - ${ENVIRONMENT:-development}=production traefik.http.routers.https-catchall.priority=1
     networks:
       - inferoute-net
     restart: unless-stopped

@@ -1,8 +1,0 @@
-http:
-  routers:
-    catchall:
-      rule: "HostRegexp(`{host:.+}`)"
-      entryPoints:
-        - "web"
-      service: noop@internal
-      priority: 1 
