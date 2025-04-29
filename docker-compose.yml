@@ -101,7 +101,7 @@ services:
       SERVER_PORT: 8080
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.orchestrator.rule=${TRAEFIK_ROUTER_RULE_HOST} && PathPrefix(`/v1`)"
+      - "traefik.http.routers.orchestrator.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/v1`)"
       - "traefik.http.routers.orchestrator.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
       - "traefik.http.routers.orchestrator.tls.certresolver=letsencrypt"
@@ -152,7 +152,7 @@ services:
       SERVER_PORT: 8082
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.provider-management.rule=${TRAEFIK_ROUTER_RULE_HOST} && PathPrefix(`/api/provider`)"
+      - "traefik.http.routers.provider-management.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/provider`)"
       - "traefik.http.routers.provider-management.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
       - "traefik.http.routers.provider-management.tls.certresolver=letsencrypt"
@@ -198,7 +198,7 @@ services:
       SERVER_PORT: 8084
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.provider-health.rule=${TRAEFIK_ROUTER_RULE_HOST} && PathPrefix(`/api/health/providers`)"
+      - "traefik.http.routers.provider-health.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/health/providers`)"
       - "traefik.http.routers.provider-health.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
       - "traefik.http.routers.provider-health.tls=${ENVIRONMENT:-development}=production"
@@ -224,7 +224,7 @@ services:
       SERVER_PORT: 8085
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.model-pricing.rule=${TRAEFIK_ROUTER_RULE_HOST} && PathPrefix(`/api/model-pricing`)"
+      - "traefik.http.routers.model-pricing.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/model-pricing`)"
       - "traefik.http.routers.model-pricing.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
       - "traefik.http.routers.model-pricing.tls=${ENVIRONMENT:-development}=production"
