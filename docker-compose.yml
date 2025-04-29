@@ -73,12 +73,12 @@ services:
       - traefik-certificates:/certificates
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.rule=Host(`core.inferoute.com`)"
       - "traefik.http.routers.http-catchall.entrypoints=web"
       - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
-      - "traefik.http.routers.https-catchall.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.https-catchall.rule=Host(`core.inferoute.com`)"
       - "traefik.http.routers.https-catchall.entrypoints=websecure"
       - "traefik.http.routers.https-catchall.tls=true"
       - "traefik.http.routers.https-catchall.tls.certresolver=letsencrypt"
@@ -104,7 +104,7 @@ services:
       - "traefik.http.routers.orchestrator.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/v1`)"
       - "traefik.http.routers.orchestrator.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
-      - "traefik.http.routers.orchestrator.tls=${ENVIRONMENT:-development}=production"
+      - "traefik.http.routers.orchestrator.tls.certresolver=letsencrypt"
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -155,7 +155,7 @@ services:
       - "traefik.http.routers.provider-management.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/provider`)"
       - "traefik.http.routers.provider-management.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
-      - "traefik.http.routers.provider-management.tls=${ENVIRONMENT:-development}=production"
+      - "traefik.http.routers.provider-management.tls.certresolver=letsencrypt"
     depends_on:
       - cockroachdb
       - rabbitmq
