@@ -224,12 +224,10 @@ services:
       SERVER_PORT: 8085
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.model-pricing.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/model-pricing/`)"
+      - "traefik.http.routers.model-pricing.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/model-pricing`)"
       - "traefik.http.routers.model-pricing.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
       - "traefik.http.routers.model-pricing.tls=${ENVIRONMENT:-development}=production"
-      - "traefik.http.middlewares.strip-model-pricing-prefix.stripprefix.prefixes=/api/model-pricing"
-      - "traefik.http.routers.model-pricing.middlewares=strip-model-pricing-prefix"
     depends_on:
       - cockroachdb
     networks:
