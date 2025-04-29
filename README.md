@@ -17,10 +17,10 @@ Inferoute Node Application
 ### 1. Build containers
 
 ### Development
-docker compose --env-file docker/env/development.env build
+`docker compose --env-file docker/env/development.env build`
 
 ### Production
-docker compose --env-file docker/env/production.env build
+`docker compose --env-file docker/env/production.env build`
 
 #### Build a single container
 
