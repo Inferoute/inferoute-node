@@ -201,7 +201,7 @@ services:
       - "traefik.http.routers.provider-health.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/health/providers`)"
       - "traefik.http.routers.provider-health.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
-      - "traefik.http.routers.provider-health.tls=${ENVIRONMENT:-development}=production"
+      - "traefik.http.routers.provider-health.tls.certresolver=letsencrypt"
     depends_on:
       - cockroachdb
       - rabbitmq
@@ -227,7 +227,7 @@ services:
       - "traefik.http.routers.model-pricing.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/model-pricing`)"
       - "traefik.http.routers.model-pricing.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
       - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
-      - "traefik.http.routers.model-pricing.tls=${ENVIRONMENT:-development}=production"
+      - "traefik.http.routers.model-pricing.tls.certresolver=letsencrypt"
     depends_on:
       - cockroachdb
     networks:
