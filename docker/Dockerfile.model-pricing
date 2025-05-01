@@ -27,9 +27,12 @@ RUN apk --no-cache add ca-certificates tzdata
 # Create a non-root user to run the application
 RUN adduser -D -g '' appuser
 
-# Copy the binary and .env from the builder stage
+# Add build argument for environment
+ARG ENVIRONMENT=development
+
+# Copy the binary and appropriate .env from the builder stage
 COPY --from=builder /go/bin/app /app
-COPY --from=builder /app/.env /.env
+COPY --from=builder /app/docker/env/${ENVIRONMENT}.env /.env
 
 # Set ownership of the application binary and .env
 RUN chown appuser:appuser /app /.env
