@@ -12,74 +12,6 @@ x-common-variables: &common-variables
   COCKROACH_DB: ${COCKROACH_DB}
 
 services:
-  # Traefik for development (HTTP only)
-  traefik-dev:
-    image: traefik:v2.10
-    container_name: traefik
-    profiles: ["development"]
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=inferoute-net"
-      - "--entrypoints.web.address=:80"
-      - "--log.level=DEBUG"
-    ports:
-      - "80:80"
-      - "8080:8080"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.api.rule=HostRegexp(`{host:.+}`)"
-      - "traefik.http.routers.api.entrypoints=web"
-    networks:
-      - inferoute-net
-    restart: unless-stopped
-
-  # Traefik for production (with HTTPS)
-  traefik-prod:
-    image: traefik:v2.10
-    container_name: traefik
-    profiles: ["production"]
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=inferoute-net"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--log.level=DEBUG"
-      - "--accesslog=true"
-      - "--accesslog.fields.headers.names.User-Agent=keep"
-      - "--accesslog.fields.headers.names.Authorization=keep"
-      - "--accesslog.fields.headers.names.Content-Type=keep"
-      - "--certificatesresolvers.letsencrypt.acme.email=charles@inferoute.com"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/certificates/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
-    ports:
-      - "80:80"
-      - "443:443"
-      - "8080:8080"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - traefik-certificates:/certificates
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.http-catchall.rule=Host(`core.inferoute.com`)"
-      - "traefik.http.routers.http-catchall.entrypoints=web"
-      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
-      - "traefik.http.routers.https-catchall.rule=Host(`core.inferoute.com`)"
-      - "traefik.http.routers.https-catchall.entrypoints=websecure"
-      - "traefik.http.routers.https-catchall.tls=true"
-      - "traefik.http.routers.https-catchall.tls.certresolver=letsencrypt"
-    networks:
-      - inferoute-net
-    restart: unless-stopped
-
   orchestrator:
     build:
       context: ../..
@@ -87,6 +19,7 @@ services:
     container_name: orchestrator
     environment:
       <<: *common-variables
+      SERVER_PORT: 8080
     expose:
       - "8080"
     depends_on:
@@ -107,6 +40,9 @@ services:
     container_name: auth
     environment:
       <<: *common-variables
+      SERVER_PORT: 8081
+      AUTH_HMACSECRET: ${AUTH_HMACSECRET}
+      AUTH_TOKENDURATION: ${AUTH_TOKENDURATION}
     expose:
       - "8081"
     depends_on:
@@ -123,6 +59,7 @@ services:
     container_name: provider-management
     environment:
       <<: *common-variables
+      SERVER_PORT: 8082
     expose:
       - "8082"
     depends_on:
@@ -143,6 +80,7 @@ services:
     container_name: provider-communication
     environment:
       <<: *common-variables
+      SERVER_PORT: 8083
     expose:
       - "8083"
     depends_on:
@@ -159,6 +97,7 @@ services:
     container_name: provider-health
     environment:
       <<: *common-variables
+      SERVER_PORT: 8084
     expose:
       - "8084"
     depends_on:
@@ -179,6 +118,7 @@ services:
     container_name: model-pricing
     environment:
       <<: *common-variables
+      SERVER_PORT: 8085
     expose:
       - "8085"
     depends_on:
@@ -199,8 +139,6 @@ services:
     container_name: scheduler
     environment:
       <<: *common-variables
-    expose:
-      - "8086"
     depends_on:
       - rabbitmq
       - cockroachdb
@@ -215,8 +153,9 @@ services:
     container_name: payment-processing
     environment:
       <<: *common-variables
+      SERVER_PORT: 8086
     expose:
-      - "8087"
+      - "8086"
     depends_on:
       - rabbitmq
       - cockroachdb
@@ -225,18 +164,37 @@ services:
     restart: unless-stopped
 
   # CockroachDB container
+
   cockroachdb:
-    image: cockroachdb/cockroach:v23.1.13
     container_name: cockroachdb
-    command: start-single-node --insecure
+    image: cockroachdb/cockroach:v23.1.11
+    command: 
+      - start
+      - --insecure
+      - --advertise-addr
+      - ${WIREGUARD_IP}
+      - --join
+      - ${WIREGUARD_IP}
+      - --cache=.25
+      - --max-sql-memory=.25
+    environment:
+      WIREGUARD_IP: ${WIREGUARD_IP}
+      COCKROACH_JOIN_IPS: ${WIREGUARD_IP}
     ports:
-      - "26257:26257"
-      - "8888:8080"
+      - "${WIREGUARD_IP}:26257:26257"  # Bind to WireGuard IP
+    expose:
+      - "8080"    # UI port, only needed internally
     volumes:
       - cockroach-data:/cockroach/cockroach-data
     networks:
       - inferoute-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 
   # RabbitMQ container
   rabbitmq:
@@ -244,12 +202,14 @@ services:
       context: ../..
       dockerfile: docker/Dockerfile.rabbitmq
     container_name: rabbitmq
+    image: rabbitmq:3.12-management-alpine
+    expose:
+      - "5672"    # AMQP port
+      - "15672"   # Management UI port
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
-    ports:
-      - "5672:5672"
-      - "15672:15672"
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     networks:
@@ -258,18 +218,22 @@ services:
 
   # API Testing container
   api-testing:
-    build:
-      context: ../..
-      dockerfile: docker/Dockerfile
+    image: alpine:3.19
     container_name: api-testing
-    environment:
-      <<: *common-variables
-    depends_on:
-      - rabbitmq
-      - cockroachdb
+    command: tail -f /dev/null  # Keep container running
     networks:
       - inferoute-net
+    environment:
+      <<: *common-variables
+    volumes:
+      - ../../docker/files/api-testing/create_test_users.sh:/create_test_users.sh
     restart: unless-stopped
+    entrypoint: |
+      /bin/sh -c "
+      apk add --no-cache curl nano jq
+      chmod +x /create_test_users.sh
+      tail -f /dev/null
+      "
 
 volumes:
   cockroach-data:
