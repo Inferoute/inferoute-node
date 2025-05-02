@@ -82,7 +82,7 @@ services:
 
   orchestrator:
     build:
-      context: .
+      context: ../..
       dockerfile: docker/Dockerfile.orchestrator
     container_name: orchestrator
     environment:
@@ -102,7 +102,7 @@ services:
 
   auth:
     build:
-      context: .
+      context: ../..
       dockerfile: docker/Dockerfile.auth
     container_name: auth
     environment:
@@ -118,7 +118,7 @@ services:
 
   provider-management:
     build:
-      context: .
+      context: ../..
       dockerfile: docker/Dockerfile.provider-management
     container_name: provider-management
     environment:
@@ -138,7 +138,7 @@ services:
 
   provider-communication:
     build:
-      context: .
+      context: ../..
       dockerfile: docker/Dockerfile.provider-communication
     container_name: provider-communication
     environment:
@@ -154,7 +154,7 @@ services:
 
   provider-health:
     build:
-      context: .
+      context: ../..
       dockerfile: docker/Dockerfile.provider-health
     container_name: provider-health
     environment:
@@ -174,7 +174,7 @@ services:
 
   model-pricing:
     build:
-      context: .
+      context: ../..
       dockerfile: docker/Dockerfile.model-pricing
     container_name: model-pricing
     environment:
@@ -194,7 +194,7 @@ services:
 
   scheduler:
     build:
-      context: .
+      context: ../..
       dockerfile: docker/Dockerfile.scheduler
     container_name: scheduler
     environment:
@@ -210,7 +210,7 @@ services:
 
   payment-processing:
     build:
-      context: .
+      context: ../..
       dockerfile: docker/Dockerfile.payment-processing
     container_name: payment-processing
     environment:
@@ -241,7 +241,7 @@ services:
   # RabbitMQ container
   rabbitmq:
     build:
-      context: .
+      context: ../..
       dockerfile: docker/Dockerfile.rabbitmq
     container_name: rabbitmq
     environment:
@@ -259,7 +259,7 @@ services:
   # API Testing container
   api-testing:
     build:
-      context: .
+      context: ../..
       dockerfile: docker/Dockerfile
     container_name: api-testing
     environment:
