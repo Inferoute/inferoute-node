@@ -198,18 +198,15 @@ services:
 
   # RabbitMQ container
   rabbitmq:
-    build:
-      context: ../..
-      dockerfile: docker/Dockerfile.rabbitmq
-    container_name: rabbitmq
     image: rabbitmq:3.12-management-alpine
-    expose:
-      - "5672"    # AMQP port
-      - "15672"   # Management UI port
+    container_name: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+    expose:
+      - "5672"    # AMQP port
+      - "15672"   # Management UI port
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     networks:
