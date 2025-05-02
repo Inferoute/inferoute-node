@@ -1,0 +1,239 @@
+# Common environment variables for all services
+x-common-variables: &common-variables
+  RABBITMQ_USER: ${RABBITMQ_USER}
+  RABBITMQ_PASS: ${RABBITMQ_PASS}
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  RABBITMQ_VHOST: /
+  COCKROACH_HOST: cockroachdb
+  COCKROACH_PORT: 26257
+  COCKROACH_USER: ${COCKROACH_USER}
+  COCKROACH_PASS: ${COCKROACH_PASS}
+  COCKROACH_DB: ${COCKROACH_DB}
+
+services:
+  orchestrator:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.orchestrator
+    container_name: orchestrator
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8080
+    expose:
+      - "8080"
+    depends_on:
+      - rabbitmq
+      - cockroachdb
+    networks:
+      - inferoute-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
+    restart: unless-stopped
+
+  auth:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.auth
+    container_name: auth
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8081
+      AUTH_HMACSECRET: ${AUTH_HMACSECRET}
+      AUTH_TOKENDURATION: ${AUTH_TOKENDURATION}
+    expose:
+      - "8081"
+    depends_on:
+      - rabbitmq
+      - cockroachdb
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+
+  provider-management:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.provider-management
+    container_name: provider-management
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8082
+    expose:
+      - "8082"
+    depends_on:
+      - rabbitmq
+      - cockroachdb
+    networks:
+      - inferoute-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
+    restart: unless-stopped
+
+  provider-communication:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.provider-communication
+    container_name: provider-communication
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8083
+    expose:
+      - "8083"
+    depends_on:
+      - rabbitmq
+      - cockroachdb
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+
+  provider-health:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.provider-health
+    container_name: provider-health
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8084
+    expose:
+      - "8084"
+    depends_on:
+      - rabbitmq
+      - cockroachdb
+    networks:
+      - inferoute-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
+    restart: unless-stopped
+
+  model-pricing:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.model-pricing
+    container_name: model-pricing
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8085
+    expose:
+      - "8085"
+    depends_on:
+      - rabbitmq
+      - cockroachdb
+    networks:
+      - inferoute-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.scheduler
+    container_name: scheduler
+    environment:
+      <<: *common-variables
+    depends_on:
+      - rabbitmq
+      - cockroachdb
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+
+  payment-processing:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.payment-processing
+    container_name: payment-processing
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8086
+    expose:
+      - "8086"
+    depends_on:
+      - rabbitmq
+      - cockroachdb
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+
+  # CockroachDB container
+
+  cockroachdb:
+    container_name: cockroachdb
+    image: cockroachdb/cockroach:v23.1.11
+    command: 
+      - start
+      - --insecure
+      - --advertise-addr
+      - ${WIREGUARD_IP}
+      - --join
+      - ${WIREGUARD_IP}
+      - --cache=.25
+      - --max-sql-memory=.25
+    environment:
+      WIREGUARD_IP: ${WIREGUARD_IP}
+      COCKROACH_JOIN_IPS: ${WIREGUARD_IP}
+    ports:
+      - "${WIREGUARD_IP}:26257:26257"  # Bind to WireGuard IP
+    expose:
+      - "8080"    # UI port, only needed internally
+    volumes:
+      - cockroach-data:/cockroach/cockroach-data
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  # RabbitMQ container
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+    expose:
+      - "5672"    # AMQP port
+      - "15672"   # Management UI port
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+
+  # API Testing container
+  api-testing:
+    image: alpine:3.19
+    container_name: api-testing
+    command: tail -f /dev/null  # Keep container running
+    networks:
+      - inferoute-net
+    environment:
+      <<: *common-variables
+    volumes:
+      - ../../docker/files/api-testing/create_test_users.sh:/create_test_users.sh
+    restart: unless-stopped
+    entrypoint: |
+      /bin/sh -c "
+      apk add --no-cache curl nano jq
+      chmod +x /create_test_users.sh
+      tail -f /dev/null
+      "
+
+volumes:
+  cockroach-data:
+  rabbitmq-data:
+  traefik-certificates:
+
+networks:
+  inferoute-net:
+    name: inferoute-net
+    external: true 

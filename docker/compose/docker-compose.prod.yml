@@ -1,0 +1,104 @@
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    profiles: ["production"]
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=inferoute-net"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--log.level=DEBUG"
+      - "--accesslog=true"
+      - "--accesslog.fields.headers.names.User-Agent=keep"
+      - "--accesslog.fields.headers.names.Authorization=keep"
+      - "--accesslog.fields.headers.names.Content-Type=keep"
+      - "--certificatesresolvers.letsencrypt.acme.email=charles@inferoute.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/certificates/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certificates:/certificates
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.http-catchall.rule=Host(`core.inferoute.com`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+      - "traefik.http.routers.https-catchall.rule=Host(`core.inferoute.com`)"
+      - "traefik.http.routers.https-catchall.entrypoints=websecure"
+      - "traefik.http.routers.https-catchall.tls=true"
+      - "traefik.http.routers.https-catchall.tls.certresolver=letsencrypt"
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      args:
+        ENVIRONMENT: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.orchestrator.rule=Host(`core.inferoute.com`) && PathPrefix(`/v1`)"
+      - "traefik.http.routers.orchestrator.entrypoints=websecure"
+      - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
+      - "traefik.http.routers.orchestrator.tls.certresolver=letsencrypt"
+
+  provider-management:
+    build:
+      args:
+        ENVIRONMENT: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.provider-management.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/provider`)"
+      - "traefik.http.routers.provider-management.entrypoints=websecure"
+      - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
+      - "traefik.http.routers.provider-management.tls.certresolver=letsencrypt"
+
+  provider-health:
+    build:
+      args:
+        ENVIRONMENT: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.provider-health.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/health/providers`)"
+      - "traefik.http.routers.provider-health.entrypoints=websecure"
+      - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
+      - "traefik.http.routers.provider-health.tls.certresolver=letsencrypt"
+
+  model-pricing:
+    build:
+      args:
+        ENVIRONMENT: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.model-pricing.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/model-pricing`)"
+      - "traefik.http.routers.model-pricing.entrypoints=websecure"
+      - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
+      - "traefik.http.routers.model-pricing.tls.certresolver=letsencrypt"
+
+  auth:
+    build:
+      args:
+        ENVIRONMENT: production
+
+  provider-communication:
+    build:
+      args:
+        ENVIRONMENT: production
+
+  scheduler:
+    build:
+      args:
+        ENVIRONMENT: production
+
+  payment-processing:
+    build:
+      args:
+        ENVIRONMENT: production

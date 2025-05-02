@@ -1,0 +1,56 @@
+{
+  "queues": [
+    {
+      "name": "provider_health_updates",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "transactions_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "provider_health",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "transactions_exchange",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "provider_health",
+      "vhost": "/",
+      "destination": "provider_health_updates",
+      "destination_type": "queue",
+      "routing_key": "provider.health.updates",
+      "arguments": {}
+    },
+    {
+      "source": "transactions_exchange",
+      "vhost": "/",
+      "destination": "transactions_queue",
+      "destination_type": "queue",
+      "routing_key": "transactions",
+      "arguments": {}
+    }
+  ]
+} 
