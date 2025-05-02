@@ -17,7 +17,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.api.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.api.rule=Host(`localhost`)"
       - "traefik.http.routers.api.entrypoints=web"
     networks:
       - inferoute-net
@@ -29,7 +29,7 @@ services:
         ENVIRONMENT: development
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.orchestrator.rule=PathPrefix(`/v1`)"
+      - "traefik.http.routers.orchestrator.rule=Host(`localhost`) && PathPrefix(`/v1`)"
       - "traefik.http.routers.orchestrator.entrypoints=web"
       - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
 
@@ -39,7 +39,7 @@ services:
         ENVIRONMENT: development
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.provider-management.rule=PathPrefix(`/api/provider`)"
+      - "traefik.http.routers.provider-management.rule=Host(`localhost`) && PathPrefix(`/api/provider`)"
       - "traefik.http.routers.provider-management.entrypoints=web"
       - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
 
@@ -49,7 +49,7 @@ services:
         ENVIRONMENT: development
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.provider-health.rule=PathPrefix(`/api/health/providers`)"
+      - "traefik.http.routers.provider-health.rule=Host(`localhost`) && PathPrefix(`/api/health/providers`)"
       - "traefik.http.routers.provider-health.entrypoints=web"
       - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
 
@@ -59,7 +59,7 @@ services:
         ENVIRONMENT: development
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.model-pricing.rule=PathPrefix(`/api/model-pricing`)"
+      - "traefik.http.routers.model-pricing.rule=Host(`localhost`) && PathPrefix(`/api/model-pricing`)"
       - "traefik.http.routers.model-pricing.entrypoints=web"
       - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
 
