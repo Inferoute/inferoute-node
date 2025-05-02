@@ -1,5 +1,5 @@
 services:
-  traefik-dev:
+  traefik:
     image: traefik:v2.10
     container_name: traefik
     profiles: ["development"]
