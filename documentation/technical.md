@@ -571,6 +571,267 @@ async function getUserStats() {
 - Implements session management
 - Handles all frontend-to-backend communication securely
 
+
+
+## 5. Tunneling-service (TO BE CREATED AND REPLACE NGROK)
+
+Here's the updated technical scope clearly integrating **Traefik's REST API** for domain registration and management, along with recommendations for handling domain deregistration and cleanup:
+
+
+### Microservice Name:
+**Tunnel Microservice**
+
+### Language and Framework:
+- Go (Echo framework)
+
+### Purpose:
+This service manages secure, persistent provider tunnels into the central Inferoute/Routeollama infrastructure. It dynamically registers provider-specific subdomains via Traefik's REST API, provisions SSL certificates automatically using Let's Encrypt, and ensures proper lifecycle management of these tunnels (including cleanup of unused domains).
+
+---
+
+## 📖 **System Context (Updated)**
+
+```mermaid
+graph TB
+    subgraph External
+        Provider[Provider Machine]
+    end
+    
+    subgraph CentralNode["Central Node"]
+        NGINX[NGINX Gateway]
+        Orchestrator[Orchestrator Service]
+        
+        subgraph TunnelMicroservice["Tunnel Microservice"]
+            API[REST API - Echo Framework]
+            TunnelManager[Tunnel Session Manager]
+            TraefikAPIClient[Traefik REST API Client]
+        end
+        
+        subgraph Infrastructure
+            CockroachDB[(CockroachDB)]
+            Traefik[Traefik Proxy + Let's Encrypt + REST API]
+            AuthService[Authentication Service]
+            SchedulerService[Scheduler Service]
+        end
+    end
+    
+    Provider --> API
+    API --> TunnelManager
+    API --> AuthService
+    TunnelManager --> CockroachDB
+    TunnelManager --> TraefikAPIClient
+    TraefikAPIClient --> Traefik
+    SchedulerService --> TunnelManager
+```
+
+---
+
+## 🎯 **Core Responsibilities (Updated)**
+
+- **Tunnel Registration:**
+  - Validates incoming provider API keys using the Authentication Service.
+  - Associates tunnels directly with provider records and API keys.
+  - Assigns unique provider subdomains (`<provider-name>-<lookupkey>.inferoute.ai`).
+  - Dynamically registers these subdomains via Traefik's REST API (instantaneous updates).
+
+- **Tunnel Session Management:**
+  - Manages the lifecycle state of connections.
+  - Tracks active/inactive states and last heartbeat timestamps.
+
+- **Dynamic Domain Deregistration:**
+  - Periodically checks for inactive tunnels through the Scheduler micro-Service.
+  - Automatically unregisters unused/inactive domains via Traefik's REST API.
+
+---
+
+## 📦 **Database Schema (Revised Final)**
+
+### Table: `tunnels`
+
+| Column              | Type          | Description                                       |
+|---------------------|---------------|---------------------------------------------------|
+| id                  | UUID (PK)     | Unique identifier.                                |
+| provider_id         | UUID          | FK referencing `providers` table.                 |
+| api_key_id          | UUID          | FK referencing `api_keys` table.                  |
+| subdomain           | STRING        | `<provider-name>-<lookupkey>.inferoute.ai`.       |
+| status              | STRING ENUM   | (`active`, `inactive`, `pending`)                 |
+| connection_id       | STRING        | Current active session identifier.                |
+| last_connected_at   | TIMESTAMP     | Timestamp of last active connection.              |
+| last_disconnected_at| TIMESTAMP     | Timestamp when tunnel disconnected.               |
+| created_at          | TIMESTAMP     | Creation timestamp.                               |
+| updated_at          | TIMESTAMP     | Last updated timestamp.                           |
+
+---
+
+## 🔌 **API Endpoints (Updated)**
+
+All endpoints secured via provider API keys.
+
+#### ▶️ **Register Tunnel**
+```
+POST /api/tunnel/register
+```
+
+_Request JSON:_
+```json
+{
+  "api_key": "pk-abcdef1234567890"
+}
+```
+
+_Response JSON:_
+```json
+{
+  "subdomain": "providername-1a2b3c4d.inferoute.ai",
+  "status": "pending",
+  "message": "Tunnel registered successfully; awaiting active connection."
+}
+```
+
+On successful registration, this endpoint calls Traefik's REST API to immediately register the new route.
+
+#### ▶️ **Get Tunnel Info**
+```
+GET /api/tunnel/info
+```
+
+_Response JSON:_
+```json
+{
+  "subdomain": "providername-1a2b3c4d.inferoute.ai",
+  "status": "active",
+  "last_connected_at": "2024-02-25T12:34:56Z",
+  "last_disconnected_at": "2024-02-24T11:30:00Z"
+}
+```
+
+---
+
+## 🔐 **Security & Authentication**
+
+- Leveraging existing Authentication Service for validation (`/api/auth/validate`).
+- No local storage of plaintext or hashed API keys.
+- Secure HTTPS communication enforced on all endpoints.
+
+---
+
+## 🚦 **Dynamic Routing via Traefik REST API**
+
+Your Tunnel Microservice will directly interface with Traefik's REST API to instantly register/unregister routes:
+
+#### ▶️ **Register Domain via Traefik REST API**
+```http
+POST /api/http/routers/provider-router-1a2b3c4d HTTP/1.1
+Host: traefik-api:8080
+Content-Type: application/json
+
+{
+  "rule": "Host(`providername-1a2b3c4d.inferoute.ai`)",
+  "service": "provider-service-1a2b3c4d",
+  "tls": {
+    "certResolver": "letsencrypt"
+  },
+  "entryPoints": ["websecure"]
+}
+```
+
+#### ▶️ **Unregister Domain via Traefik REST API**
+```http
+DELETE /api/http/routers/provider-router-1a2b3c4d HTTP/1.1
+Host: traefik-api:8080
+```
+
+---
+
+## 🔄 **Domain Cleanup and Deregistration**
+
+Traefik itself doesn't have built-in automatic cleanup logic—it expects external orchestration. Therefore, we will handle this explicitly via:
+
+### **Scheduler Service Integration**
+
+- Create a scheduled job (e.g., every 5 minutes) in your existing Scheduler Service:
+  - Queries `tunnels` DB for tunnels marked as inactive and not connected recently (e.g., >30 minutes).
+  - Calls Tunnel Microservice internal endpoint to unregister domains via Traefik REST API.
+  - Updates tunnel status to indicate removal.
+
+#### Example Scheduled Job Logic:
+```go
+// pseudo-code scheduler logic
+func cleanupInactiveTunnels() {
+    inactiveTunnels := tunnelRepo.GetInactiveTunnels(30*time.Minute)
+    for _, tunnel := range inactiveTunnels {
+        err := tunnelMicroservice.UnregisterTunnel(tunnel.subdomain)
+        if err == nil {
+            tunnelRepo.MarkDeleted(tunnel.id)
+        }
+    }
+}
+```
+
+This ensures unused domains are cleaned up proactively, preventing unnecessary resource usage and security risks.
+
+---
+
+## 📊 **Monitoring & Observability**
+
+- Integrated OpenTelemetry instrumentation.
+- Metrics captured include active/inactive tunnels, registration/deregistration rates, errors, latency of Traefik API calls.
+
+---
+
+## 🛑 **Error Handling**
+
+Clear HTTP status codes/messages for all scenarios:
+
+- `400 Bad Request`: Invalid payload.
+- `401 Unauthorized`: Invalid or inactive provider API key.
+- `403 Forbidden`: Unauthorized request access attempt.
+- `404 Not Found`: No matching tunnel/domain found.
+- `409 Conflict`: Attempt to register already-existing domain.
+- `500 Internal Server Error`: Internal server issues logged internally.
+
+---
+
+## 🚀 **Deployment & Operations**
+
+- Containerized via Docker.
+- Deployed alongside existing central-node services.
+- Supports horizontal scaling.
+
+_Environment Variables_:
+
+| Variable                  | Description                                               |
+|---------------------------|-----------------------------------------------------------|
+| DATABASE_URL              | CockroachDB connection string                             |
+| AUTH_SERVICE_URL          | URL to Authentication Service (`/api/auth/validate`)      |
+| TRAEFIK_API_ENDPOINT      | Traefik REST API endpoint                                 |
+| TRAEFIK_API_AUTH_TOKEN    | Authentication token for Traefik REST API                 |
+| INTERNAL_API_KEY          | Secure inter-service communication key                    |
+
+---
+
+## 📝 **Future Considerations & Extensions**
+
+1. Support multi-tunnel-per-provider scenarios.
+2. Enhanced security with mTLS connections.
+3. Admin dashboard/UI for monitoring and manual management.
+
+---
+
+## ✅ **Next Steps**
+
+1. Implement Echo-based microservice scaffold.
+2. Integrate `/api/tunnel/register` endpoint with Auth Service validation.
+3. Implement backend client for Traefik REST API (registration/unregistration).
+4. Add Scheduler Service cleanup cron job for inactive tunnels.
+
+---
+
+This final revision clearly outlines how your Tunnel Microservice will efficiently leverage Traefik's REST API for instantaneous dynamic routing while ensuring responsible lifecycle management through integrated scheduling and cleanup mechanisms.
+
+Let me know if you'd like any further refinements!
+
+
 ## 5.  Provider Management Service (Go)
 
  - **Role:** Provides APIs for providers to manage their models, availability status, and health reporting. Acts as the entry point for provider health updates which are then published to RabbitMQ for processing by the provider-health service
