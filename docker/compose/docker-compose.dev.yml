@@ -1,0 +1,72 @@
+services:
+  traefik-dev:
+    image: traefik:v2.10
+    container_name: traefik
+    profiles: ["development"]
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=inferoute-net"
+      - "--entrypoints.web.address=:80"
+      - "--log.level=DEBUG"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.api.entrypoints=web"
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      args:
+        ENVIRONMENT: development
+    labels:
+      - "traefik.http.routers.orchestrator.entrypoints=web"
+
+  provider-management:
+    build:
+      args:
+        ENVIRONMENT: development
+    labels:
+      - "traefik.http.routers.provider-management.entrypoints=web"
+
+  provider-health:
+    build:
+      args:
+        ENVIRONMENT: development
+    labels:
+      - "traefik.http.routers.provider-health.entrypoints=web"
+
+  model-pricing:
+    build:
+      args:
+        ENVIRONMENT: development
+    labels:
+      - "traefik.http.routers.model-pricing.entrypoints=web"
+
+  auth:
+    build:
+      args:
+        ENVIRONMENT: development
+
+  provider-communication:
+    build:
+      args:
+        ENVIRONMENT: development
+
+  scheduler:
+    build:
+      args:
+        ENVIRONMENT: development
+
+  payment-processing:
+    build:
+      args:
+        ENVIRONMENT: development

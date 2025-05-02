@@ -1,0 +1,80 @@
+services:
+  traefik-prod:
+    image: traefik:v2.10
+    container_name: traefik
+    profiles: ["production"]
+    command:
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=inferoute-net"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.email=admin@inferoute.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/certificates/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--log.level=INFO"
+    ports:
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certificates:/certificates
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`core.inferoute.com`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+    networks:
+      - inferoute-net
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      args:
+        ENVIRONMENT: production
+    labels:
+      - "traefik.http.routers.orchestrator.entrypoints=websecure"
+      - "traefik.http.routers.orchestrator.tls.certresolver=letsencrypt"
+
+  provider-management:
+    build:
+      args:
+        ENVIRONMENT: production
+    labels:
+      - "traefik.http.routers.provider-management.entrypoints=websecure"
+      - "traefik.http.routers.provider-management.tls.certresolver=letsencrypt"
+
+  provider-health:
+    build:
+      args:
+        ENVIRONMENT: production
+    labels:
+      - "traefik.http.routers.provider-health.entrypoints=websecure"
+      - "traefik.http.routers.provider-health.tls.certresolver=letsencrypt"
+
+  model-pricing:
+    build:
+      args:
+        ENVIRONMENT: production
+    labels:
+      - "traefik.http.routers.model-pricing.entrypoints=websecure"
+      - "traefik.http.routers.model-pricing.tls.certresolver=letsencrypt"
+
+  auth:
+    build:
+      args:
+        ENVIRONMENT: production
+
+  provider-communication:
+    build:
+      args:
+        ENVIRONMENT: production
+
+  scheduler:
+    build:
+      args:
+        ENVIRONMENT: production
+
+  payment-processing:
+    build:
+      args:
+        ENVIRONMENT: production

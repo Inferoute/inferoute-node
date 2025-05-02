@@ -1,25 +1,15 @@
 # Common environment variables for all services
 x-common-variables: &common-variables
-  ENVIRONMENT: ${ENVIRONMENT:-development}
-  SERVER_HOST: ${SERVER_HOST}
-  DATABASE_HOST: ${DATABASE_HOST}
-  DATABASE_PORT: ${DATABASE_PORT}
-  DATABASE_USER: ${DATABASE_USER}
-  DATABASE_PASSWORD: ${DATABASE_PASSWORD}
-  DATABASE_DBNAME: ${DATABASE_DBNAME}
-  DATABASE_SSLMODE: ${DATABASE_SSLMODE}
-  RABBITMQ_HOST: ${RABBITMQ_HOST}
-  RABBITMQ_PORT: ${RABBITMQ_PORT}
   RABBITMQ_USER: ${RABBITMQ_USER}
-  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-  RABBITMQ_VHOST: ${RABBITMQ_VHOST}
-  INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-  INTERNAL_NETWORK_CIDR: ${INTERNAL_NETWORK_CIDR}
-  DOMAIN: ${DOMAIN}
-  VIRTUAL_HOST: ${VIRTUAL_HOST:-core.inferoute.com}
-  LETSENCRYPT_HOST: ${VIRTUAL_HOST:-core.inferoute.com}
-  LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-charles@inferoute.com}
-
+  RABBITMQ_PASS: ${RABBITMQ_PASS}
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  RABBITMQ_VHOST: /
+  COCKROACH_HOST: cockroachdb
+  COCKROACH_PORT: 26257
+  COCKROACH_USER: ${COCKROACH_USER}
+  COCKROACH_PASS: ${COCKROACH_PASS}
+  COCKROACH_DB: ${COCKROACH_DB}
 
 services:
   # Traefik for development (HTTP only)
@@ -94,49 +84,34 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.orchestrator
-      args:
-        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: orchestrator
-    env_file: docker/env/${ENVIRONMENT:-development}.env
-    expose:
-      - "8080"
     environment:
       <<: *common-variables
-      SERVER_PORT: 8080
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.orchestrator.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/v1`)"
-      - "traefik.http.routers.orchestrator.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
-      - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
-      - "traefik.http.routers.orchestrator.tls.certresolver=letsencrypt"
+    expose:
+      - "8080"
     depends_on:
-      - cockroachdb
       - rabbitmq
-      - provider-communication
-      - provider-health
-      - model-pricing
+      - cockroachdb
     networks:
       - inferoute-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.orchestrator.rule=PathPrefix(`/api/orchestrator`)"
+      - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
     restart: unless-stopped
 
   auth:
     build:
       context: .
       dockerfile: docker/Dockerfile.auth
-      args:
-        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: auth
-    env_file: docker/env/${ENVIRONMENT:-development}.env
-    expose:
-      - "8081"
     environment:
       <<: *common-variables
-      SERVER_PORT: 8081
-      AUTH_HMACSECRET: ${AUTH_HMACSECRET}
-      AUTH_TOKENDURATION: ${AUTH_TOKENDURATION}
+    expose:
+      - "8081"
     depends_on:
-      - cockroachdb
       - rabbitmq
+      - cockroachdb
     networks:
       - inferoute-net
     restart: unless-stopped
@@ -145,44 +120,34 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.provider-management
-      args:
-        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: provider-management
-    env_file: docker/env/${ENVIRONMENT:-development}.env
-    expose:
-      - "8082"
     environment:
       <<: *common-variables
-      SERVER_PORT: 8082
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.provider-management.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/provider`)"
-      - "traefik.http.routers.provider-management.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
-      - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
-      - "traefik.http.routers.provider-management.tls.certresolver=letsencrypt"
+    expose:
+      - "8082"
     depends_on:
-      - cockroachdb
       - rabbitmq
+      - cockroachdb
     networks:
       - inferoute-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.provider-management.rule=PathPrefix(`/api/provider`)"
+      - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
     restart: unless-stopped
 
   provider-communication:
     build:
       context: .
       dockerfile: docker/Dockerfile.provider-communication
-      args:
-        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: provider-communication
-    env_file: docker/env/${ENVIRONMENT:-development}.env
-    expose:
-      - "8083"
     environment:
       <<: *common-variables
-      SERVER_PORT: 8083
+    expose:
+      - "8083"
     depends_on:
-      - cockroachdb
       - rabbitmq
+      - cockroachdb
     networks:
       - inferoute-net
     restart: unless-stopped
@@ -191,66 +156,54 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.provider-health
-      args:
-        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: provider-health
-    env_file: docker/env/${ENVIRONMENT:-development}.env
-    expose:
-      - "8084"
     environment:
       <<: *common-variables
-      SERVER_PORT: 8084
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.provider-health.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/health/providers`)"
-      - "traefik.http.routers.provider-health.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
-      - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
-      - "traefik.http.routers.provider-health.tls.certresolver=letsencrypt"
+    expose:
+      - "8084"
     depends_on:
-      - cockroachdb
       - rabbitmq
+      - cockroachdb
     networks:
       - inferoute-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.provider-health.rule=PathPrefix(`/api/health`)"
+      - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
     restart: unless-stopped
 
   model-pricing:
     build:
       context: .
       dockerfile: docker/Dockerfile.model-pricing
-      args:
-        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: model-pricing
-    env_file: docker/env/${ENVIRONMENT:-development}.env
-    expose:
-      - "8085"
     environment:
       <<: *common-variables
-      SERVER_PORT: 8085
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.model-pricing.rule=${TRAEFIK_ROUTER_RULE_HOST}PathPrefix(`/api/model-pricing`)"
-      - "traefik.http.routers.model-pricing.entrypoints=${TRAEFIK_ROUTER_ENTRYPOINTS}"
-      - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
-      - "traefik.http.routers.model-pricing.tls.certresolver=letsencrypt"
+    expose:
+      - "8085"
     depends_on:
+      - rabbitmq
       - cockroachdb
     networks:
       - inferoute-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.model-pricing.rule=PathPrefix(`/api/model-pricing`)"
+      - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
     restart: unless-stopped
 
   scheduler:
     build:
       context: .
       dockerfile: docker/Dockerfile.scheduler
-      args:
-        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: scheduler
-    env_file: docker/env/${ENVIRONMENT:-development}.env
     environment:
       <<: *common-variables
+    expose:
+      - "8086"
     depends_on:
-      - model-pricing
-      - provider-health
+      - rabbitmq
+      - cockroachdb
     networks:
       - inferoute-net
     restart: unless-stopped
@@ -259,62 +212,44 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.payment-processing
-      args:
-        ENVIRONMENT: ${ENVIRONMENT:-development}
     container_name: payment-processing
-    env_file: docker/env/${ENVIRONMENT:-development}.env
     environment:
       <<: *common-variables
-      SERVER_PORT: 8086
+    expose:
+      - "8087"
     depends_on:
-      - cockroachdb
       - rabbitmq
+      - cockroachdb
     networks:
       - inferoute-net
     restart: unless-stopped
 
   # CockroachDB container
   cockroachdb:
+    image: cockroachdb/cockroach:v23.1.13
     container_name: cockroachdb
-    image: cockroachdb/cockroach:v23.1.11
-    command: 
-      - start
-      - --insecure
-      - --advertise-addr
-      - ${WIREGUARD_IP}
-      - --join
-      - ${WIREGUARD_IP}
-      - --cache=.25
-      - --max-sql-memory=.25
-    environment:
-      WIREGUARD_IP: ${WIREGUARD_IP}
-      COCKROACH_JOIN_IPS: ${WIREGUARD_IP}
+    command: start-single-node --insecure
     ports:
-      - "${WIREGUARD_IP}:26257:26257"  # Bind to WireGuard IP
-    expose:
-      - "8080"    # UI port, only needed internally
+      - "26257:26257"
+      - "8888:8080"
     volumes:
       - cockroach-data:/cockroach/cockroach-data
     networks:
       - inferoute-net
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   # RabbitMQ container
   rabbitmq:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.rabbitmq
     container_name: rabbitmq
-    image: rabbitmq:3.12-management-alpine
-    expose:
-      - "5672"    # AMQP port
-      - "15672"   # Management UI port
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     networks:
@@ -323,22 +258,18 @@ services:
 
   # API Testing container
   api-testing:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     container_name: api-testing
-    image: alpine:3.19
-    command: tail -f /dev/null  # Keep container running
-    networks:
-      - inferoute-net
     environment:
       <<: *common-variables
-    volumes:
-      - ./docker/files/api-testing/create_test_users.sh:/create_test_users.sh
+    depends_on:
+      - rabbitmq
+      - cockroachdb
+    networks:
+      - inferoute-net
     restart: unless-stopped
-    entrypoint: |
-      /bin/sh -c "
-      apk add --no-cache curl nano jq
-      chmod +x /create_test_users.sh
-      tail -f /dev/null
-      "
 
 volumes:
   cockroach-data:
