@@ -152,6 +152,38 @@ go build -o bin/test_payment_processor test_payment_processor.go
 ./bin/test_payment_processor
 ```
 
+### To bring things down 
+
+## Develpoment 
+
+# First bring everything down
+docker compose -f docker/compose/docker-compose.yml \
+               -f docker/compose/docker-compose.dev.yml \
+               --env-file docker/env/development.env \
+               --profile development down 
+
+# Then bring it back up
+docker compose -f docker/compose/docker-compose.yml \
+               -f docker/compose/docker-compose.dev.yml \
+               --env-file docker/env/development.env \
+               --profile development up -d
+
+
+## Production 
+
+# First bring everything down
+docker compose -f docker/compose/docker-compose.yml \
+               -f docker/compose/docker-compose.prod.yml \
+               --env-file docker/env/production.env \
+               --profile production down 
+
+# Then bring it back up
+docker compose -f docker/compose/docker-compose.yml \
+               -f docker/compose/docker-compose.prod.yml \
+               --env-file docker/env/production.env \
+               --profile production up -d
+
+
 ### Client for Providers
 Provider nodes need:
 - Nginx server with API key validation and HMAC verification
