@@ -4,25 +4,39 @@ services:
     container_name: traefik
     profiles: ["production"]
     command:
-      - "--api.insecure=false"
+      - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=inferoute-net"
+      - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.letsencrypt.acme.email=admin@inferoute.com"
+      - "--log.level=DEBUG"
+      - "--accesslog=true"
+      - "--accesslog.fields.headers.names.User-Agent=keep"
+      - "--accesslog.fields.headers.names.Authorization=keep"
+      - "--accesslog.fields.headers.names.Content-Type=keep"
+      - "--certificatesresolvers.letsencrypt.acme.email=charles@inferoute.com"
       - "--certificatesresolvers.letsencrypt.acme.storage=/certificates/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
-      - "--log.level=INFO"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
     ports:
+      - "80:80"
       - "443:443"
+      - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik-certificates:/certificates
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.api.rule=Host(`core.inferoute.com`)"
-      - "traefik.http.routers.api.entrypoints=websecure"
-      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.http-catchall.rule=Host(`core.inferoute.com`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+      - "traefik.http.routers.https-catchall.rule=Host(`core.inferoute.com`)"
+      - "traefik.http.routers.https-catchall.entrypoints=websecure"
+      - "traefik.http.routers.https-catchall.tls=true"
+      - "traefik.http.routers.https-catchall.tls.certresolver=letsencrypt"
     networks:
       - inferoute-net
     restart: unless-stopped
