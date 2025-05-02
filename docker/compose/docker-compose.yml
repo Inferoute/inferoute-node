@@ -29,7 +29,6 @@ services:
       - inferoute-net
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.orchestrator.rule=PathPrefix(`/api/orchestrator`)"
       - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
     restart: unless-stopped
 
@@ -69,7 +68,6 @@ services:
       - inferoute-net
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.provider-management.rule=PathPrefix(`/api/provider`)"
       - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
     restart: unless-stopped
 
@@ -107,7 +105,6 @@ services:
       - inferoute-net
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.provider-health.rule=PathPrefix(`/api/health`)"
       - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
     restart: unless-stopped
 
@@ -128,7 +125,6 @@ services:
       - inferoute-net
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.model-pricing.rule=PathPrefix(`/api/model-pricing`)"
       - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
     restart: unless-stopped
 

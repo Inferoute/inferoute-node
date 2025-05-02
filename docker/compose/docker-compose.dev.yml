@@ -28,28 +28,40 @@ services:
       args:
         ENVIRONMENT: development
     labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.orchestrator.rule=PathPrefix(`/v1`)"
       - "traefik.http.routers.orchestrator.entrypoints=web"
+      - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
 
   provider-management:
     build:
       args:
         ENVIRONMENT: development
     labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.provider-management.rule=PathPrefix(`/api/provider`)"
       - "traefik.http.routers.provider-management.entrypoints=web"
+      - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
 
   provider-health:
     build:
       args:
         ENVIRONMENT: development
     labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.provider-health.rule=PathPrefix(`/api/health/providers`)"
       - "traefik.http.routers.provider-health.entrypoints=web"
+      - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
 
   model-pricing:
     build:
       args:
         ENVIRONMENT: development
     labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.model-pricing.rule=PathPrefix(`/api/model-pricing`)"
       - "traefik.http.routers.model-pricing.entrypoints=web"
+      - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
 
   auth:
     build:

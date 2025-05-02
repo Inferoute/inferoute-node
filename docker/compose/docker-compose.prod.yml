@@ -46,7 +46,10 @@ services:
       args:
         ENVIRONMENT: production
     labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.orchestrator.rule=Host(`core.inferoute.com`) && PathPrefix(`/v1`)"
       - "traefik.http.routers.orchestrator.entrypoints=websecure"
+      - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
       - "traefik.http.routers.orchestrator.tls.certresolver=letsencrypt"
 
   provider-management:
@@ -54,7 +57,10 @@ services:
       args:
         ENVIRONMENT: production
     labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.provider-management.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/provider`)"
       - "traefik.http.routers.provider-management.entrypoints=websecure"
+      - "traefik.http.services.provider-management.loadbalancer.server.port=8082"
       - "traefik.http.routers.provider-management.tls.certresolver=letsencrypt"
 
   provider-health:
@@ -62,7 +68,10 @@ services:
       args:
         ENVIRONMENT: production
     labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.provider-health.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/health/providers`)"
       - "traefik.http.routers.provider-health.entrypoints=websecure"
+      - "traefik.http.services.provider-health.loadbalancer.server.port=8084"
       - "traefik.http.routers.provider-health.tls.certresolver=letsencrypt"
 
   model-pricing:
@@ -70,7 +79,10 @@ services:
       args:
         ENVIRONMENT: production
     labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.model-pricing.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/model-pricing`)"
       - "traefik.http.routers.model-pricing.entrypoints=websecure"
+      - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
       - "traefik.http.routers.model-pricing.tls.certresolver=letsencrypt"
 
   auth:
