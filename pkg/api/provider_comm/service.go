@@ -1,6 +1,7 @@
 package provider_comm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -37,7 +38,6 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	totalStartTime := time.Now()
 
 	// Send the request_data directly as it's already in the correct format
-	marshalStartTime := time.Now()
 	// Instead of marshaling req.RequestData directly, we need to ensure all fields are preserved
 	// Create a copy of the request data to ensure we don't modify the original
 	requestData := make(map[string]interface{})
@@ -71,7 +71,6 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	}
 
 	requestBody, err := json.Marshal(requestData)
-	marshalTime := time.Since(marshalStartTime).Milliseconds()
 	if err != nil {
 		return nil, common.ErrInternalServer(fmt.Errorf("error marshaling request: %w", err))
 	}
@@ -97,7 +96,6 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	startTime := time.Now()
 	resp, err := s.client.Do(httpReq)
 	networkTime := time.Since(startTime).Milliseconds()
-	latency := time.Since(totalStartTime).Milliseconds()
 
 	s.logger.Info("  Network time (just HTTP request): %dms", networkTime)
 
@@ -107,10 +105,16 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	}
 	defer resp.Body.Close()
 
-	// Check content type
+	// Check if response is SSE format
 	contentType := resp.Header.Get("Content-Type")
+	isSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream")
+
+	if isSSE {
+		return s.handleSSEResponse(resp.Body)
+	}
+
+	// For non-SSE responses, check for JSON content type
 	if !strings.Contains(strings.ToLower(contentType), "application/json") {
-		// Read the response body for logging
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			s.logger.Error("Failed to read non-JSON response body: %v", err)
@@ -120,39 +124,83 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 		return nil, common.ErrInternalServer(fmt.Errorf("provider returned non-JSON response (Content-Type: %s)", contentType))
 	}
 
-	// Parse the response
-	decodeStartTime := time.Now()
-	var responseData map[string]interface{}
+	// Handle regular JSON response
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		s.logger.Error("Failed to read response body: %v", err)
 		return nil, common.ErrInternalServer(fmt.Errorf("error reading response body: %w", err))
 	}
 
-	// Log the raw response for debugging
-	s.logger.Info("Raw response body: %s", string(bodyBytes))
-
+	var responseData map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &responseData); err != nil {
-		decodeTime := time.Since(decodeStartTime).Milliseconds()
-		s.logger.Error("Failed to parse provider response after %dms: %v", decodeTime, err)
+		s.logger.Error("Failed to parse JSON response: %v", err)
 		s.logger.Error("Raw response that failed to parse: %s", string(bodyBytes))
 		return nil, common.ErrInternalServer(fmt.Errorf("error parsing provider response: %w", err))
 	}
-	decodeTime := time.Since(decodeStartTime).Milliseconds()
-
-	// Log timing metrics
-	s.logger.Info("Provider Response:")
-	s.logger.Info("  Status Code: %d", resp.StatusCode)
-	s.logger.Info("  Latency: %dms", latency)
-	s.logger.Info("  Network Time: %dms", networkTime)
-	s.logger.Info("  Response Decode Time: %dms", decodeTime)
-	s.logger.Info("  Marshal Request Time: %dms", marshalTime)
-	s.logger.Info("  Total Provider Comm Time: %dms", time.Since(totalStartTime).Milliseconds())
-	s.logger.Info("  Response Data: %+v", responseData)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, common.ErrInternalServer(fmt.Errorf("provider returned status %d", resp.StatusCode))
-	}
 
 	return responseData, nil
+}
+
+// handleSSEResponse processes a Server-Sent Events response and combines the chunks
+func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, error) {
+	scanner := bufio.NewScanner(body)
+	var fullContent string
+	var lastChunk map[string]interface{}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			s.logger.Error("Failed to parse SSE chunk: %v", err)
+			s.logger.Error("Raw chunk that failed to parse: %s", data)
+			continue
+		}
+
+		// Store the last valid chunk for metadata
+		lastChunk = chunk
+
+		// Extract content from the chunk
+		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if delta, ok := choice["delta"].(map[string]interface{}); ok {
+					if content, ok := delta["content"].(string); ok {
+						fullContent += content
+					}
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, common.ErrInternalServer(fmt.Errorf("error reading SSE stream: %w", err))
+	}
+
+	// Construct final response in OpenAI format
+	response := map[string]interface{}{
+		"id":      lastChunk["id"],
+		"object":  "chat.completion",
+		"created": lastChunk["created"],
+		"model":   lastChunk["model"],
+		"choices": []map[string]interface{}{
+			{
+				"index": 0,
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": fullContent,
+				},
+				"finish_reason": "stop",
+			},
+		},
+	}
+
+	return response, nil
 }
