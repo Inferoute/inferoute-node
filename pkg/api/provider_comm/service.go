@@ -105,11 +105,25 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	}
 	defer resp.Body.Close()
 
-	// Check if response is SSE format
+	// Check response status code first
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			s.logger.Error("Failed to read error response body: %v", err)
+		} else {
+			s.logger.Error("Provider returned non-200 status code %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+		return nil, common.ErrInternalServer(fmt.Errorf("provider returned status %d", resp.StatusCode))
+	}
+
+	// Check if response is SSE format - be more lenient with content type checking
 	contentType := resp.Header.Get("Content-Type")
-	isSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream")
+	isSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream") ||
+		strings.Contains(strings.ToLower(contentType), "application/x-ndjson") ||
+		strings.Contains(strings.ToLower(contentType), "application/stream+json")
 
 	if isSSE {
+		s.logger.Info("Detected streaming response (Content-Type: %s)", contentType)
 		return s.handleSSEResponse(resp.Body)
 	}
 
@@ -146,6 +160,8 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 	scanner := bufio.NewScanner(body)
 	var fullContent string
 	var lastChunk map[string]interface{}
+	var role string
+	var usage map[string]interface{}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -168,10 +184,20 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 		// Store the last valid chunk for metadata
 		lastChunk = chunk
 
+		// Extract usage if present
+		if u, ok := chunk["usage"].(map[string]interface{}); ok {
+			usage = u
+		}
+
 		// Extract content from the chunk
 		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
 			if choice, ok := choices[0].(map[string]interface{}); ok {
 				if delta, ok := choice["delta"].(map[string]interface{}); ok {
+					// Check for role in the first chunk
+					if r, ok := delta["role"].(string); ok {
+						role = r
+					}
+					// Accumulate content
 					if content, ok := delta["content"].(string); ok {
 						fullContent += content
 					}
@@ -184,6 +210,24 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 		return nil, common.ErrInternalServer(fmt.Errorf("error reading SSE stream: %w", err))
 	}
 
+	if lastChunk == nil {
+		return nil, common.ErrInternalServer(fmt.Errorf("no valid chunks received"))
+	}
+
+	// If no role was found in deltas, default to "assistant"
+	if role == "" {
+		role = "assistant"
+	}
+
+	// If no usage was found, create default usage
+	if usage == nil {
+		usage = map[string]interface{}{
+			"prompt_tokens":     0,
+			"completion_tokens": 0,
+			"total_tokens":      0,
+		}
+	}
+
 	// Construct final response in OpenAI format
 	response := map[string]interface{}{
 		"id":      lastChunk["id"],
@@ -194,13 +238,15 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 			{
 				"index": 0,
 				"message": map[string]interface{}{
-					"role":    "assistant",
+					"role":    role,
 					"content": fullContent,
 				},
 				"finish_reason": "stop",
 			},
 		},
+		"usage": usage,
 	}
 
+	s.logger.Info("Constructed OpenAI-compatible response: %+v", response)
 	return response, nil
 }
