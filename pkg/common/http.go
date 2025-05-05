@@ -156,13 +156,6 @@ func MakeInternalRequestRaw(ctx context.Context, method string, endpoint Service
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Key", internalKey)
 
-	// Add any additional headers from context
-	if headers, ok := ctx.Value("headers").(map[string]string); ok {
-		for key, value := range headers {
-			req.Header.Set(key, value)
-		}
-	}
-
 	// Make request
 	resp, err := client.Do(req)
 	if err != nil {
