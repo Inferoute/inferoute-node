@@ -221,18 +221,20 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 	// If no usage was found, create default usage
 	if usage == nil {
 		usage = map[string]interface{}{
-			"prompt_tokens":     100,
-			"completion_tokens": 20,
-			"total_tokens":      120,
+			"prompt_tokens":         100,
+			"completion_tokens":     20,
+			"prompt_tokens_details": null,
+			"total_tokens":          120,
 		}
 	}
 
 	// Construct final response in OpenAI format
 	response := map[string]interface{}{
-		"id":      lastChunk["id"],
-		"object":  "chat.completion",
-		"created": lastChunk["created"],
-		"model":   lastChunk["model"],
+		"id":              lastChunk["id"],
+		"object":          "chat.completion",
+		"prompt_logprobs": null,
+		"created":         lastChunk["created"],
+		"model":           lastChunk["model"],
 		"choices": []map[string]interface{}{
 			{
 				"index": 0,
