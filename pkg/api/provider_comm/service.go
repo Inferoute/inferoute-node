@@ -223,7 +223,7 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 		usage = map[string]interface{}{
 			"prompt_tokens":         100,
 			"completion_tokens":     20,
-			"prompt_tokens_details": null,
+			"prompt_tokens_details": nil,
 			"total_tokens":          120,
 		}
 	}
@@ -232,7 +232,7 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 	response := map[string]interface{}{
 		"id":              lastChunk["id"],
 		"object":          "chat.completion",
-		"prompt_logprobs": null,
+		"prompt_logprobs": nil,
 		"created":         lastChunk["created"],
 		"model":           lastChunk["model"],
 		"choices": []map[string]interface{}{
