@@ -176,7 +176,6 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 	var lastChunk map[string]interface{}
 	var role string
 	var usage map[string]interface{}
-	var totalTokens int
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -187,11 +186,6 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
 			break
-		}
-
-		// Skip empty lines
-		if strings.TrimSpace(data) == "" {
-			continue
 		}
 
 		var chunk map[string]interface{}
@@ -239,25 +233,14 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 		role = "assistant"
 	}
 
-	// If no usage was found or if it's empty, create estimated usage
-	if usage == nil || (usage["total_tokens"] == 0 && usage["completion_tokens"] == 0) {
-		promptTokens := 0
-		if lastChunk["usage"] != nil {
-			if u, ok := lastChunk["usage"].(map[string]interface{}); ok {
-				if pt, ok := u["prompt_tokens"].(float64); ok {
-					promptTokens = int(pt)
-				}
-			}
-		}
+	// Use the provider's usage stats or default if not provided
+	if usage == nil {
 		usage = map[string]interface{}{
-			"prompt_tokens":     promptTokens,
-			"completion_tokens": totalTokens,
-			"total_tokens":      promptTokens + totalTokens,
+			"prompt_tokens":     0,
+			"completion_tokens": 0,
+			"total_tokens":      0,
 		}
 	}
-
-	// Clean up the content
-	fullContent = strings.TrimSpace(fullContent)
 
 	// Construct final response in OpenAI format
 	response := map[string]interface{}{
@@ -278,6 +261,5 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 		"usage": usage,
 	}
 
-	s.logger.Info("Constructed OpenAI-compatible response: %+v", response)
 	return response, nil
 }
