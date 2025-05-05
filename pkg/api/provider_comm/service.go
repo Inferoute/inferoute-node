@@ -105,6 +105,12 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	}
 	defer resp.Body.Close()
 
+	s.logger.Info("Response received from provider")
+	s.logger.Info("Response headers:")
+	for k, v := range resp.Header {
+		s.logger.Info("  %s: %v", k, v)
+	}
+
 	// Check response status code first
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, err := io.ReadAll(resp.Body)
@@ -116,30 +122,38 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 		return nil, common.ErrInternalServer(fmt.Errorf("provider returned status %d", resp.StatusCode))
 	}
 
-	// Check if response is SSE format - be more lenient with content type checking
+	// Peek at the first few bytes to check for SSE format
+	bodyReader := bufio.NewReader(resp.Body)
+	peek, err := bodyReader.Peek(5) // Look for "data:" prefix
+	if err != nil && err != io.EOF {
+		s.logger.Error("Failed to peek response: %v", err)
+		return nil, common.ErrInternalServer(fmt.Errorf("error reading response: %w", err))
+	}
+
+	// Check if response is SSE format either by content type or content
 	contentType := resp.Header.Get("Content-Type")
-	isSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream") ||
+	isSSEContentType := strings.Contains(strings.ToLower(contentType), "text/event-stream") ||
 		strings.Contains(strings.ToLower(contentType), "application/x-ndjson") ||
 		strings.Contains(strings.ToLower(contentType), "application/stream+json")
+	isSSEContent := len(peek) >= 5 && string(peek[:5]) == "data:"
+	isSSE := isSSEContentType || isSSEContent
+
+	s.logger.Info("SSE detection:")
+	s.logger.Info("  Content-Type: %s", contentType)
+	s.logger.Info("  Content peek: %q", string(peek))
+	s.logger.Info("  Is SSE by Content-Type: %v", isSSEContentType)
+	s.logger.Info("  Is SSE by content: %v", isSSEContent)
+	s.logger.Info("  Final SSE detection: %v", isSSE)
 
 	if isSSE {
-		s.logger.Info("Detected streaming response (Content-Type: %s)", contentType)
-		return s.handleSSEResponse(resp.Body)
+		s.logger.Info("Handling as SSE response")
+		return s.handleSSEResponse(bodyReader)
 	}
 
-	// For non-SSE responses, check for JSON content type
-	if !strings.Contains(strings.ToLower(contentType), "application/json") {
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			s.logger.Error("Failed to read non-JSON response body: %v", err)
-		} else {
-			s.logger.Error("Received non-JSON response (Content-Type: %s): %s", contentType, string(bodyBytes))
-		}
-		return nil, common.ErrInternalServer(fmt.Errorf("provider returned non-JSON response (Content-Type: %s)", contentType))
-	}
+	s.logger.Info("Handling as regular JSON response")
 
-	// Handle regular JSON response
-	bodyBytes, err := io.ReadAll(resp.Body)
+	// For non-SSE responses, handle as regular JSON
+	bodyBytes, err := io.ReadAll(bodyReader)
 	if err != nil {
 		s.logger.Error("Failed to read response body: %v", err)
 		return nil, common.ErrInternalServer(fmt.Errorf("error reading response body: %w", err))
