@@ -162,11 +162,11 @@ func (h *Handler) GetProviderHealth(c echo.Context) error {
 }
 
 // @Summary Filter providers by model, tier, health status, and cost
-// @Description Get a list of healthy providers offering a specific model within cost constraints
+// @Description Get a list of healthy providers offering a specific model within cost constraints. If no model is specified, returns the cheapest available model for each provider.
 // @Tags providers
 // @Accept json
 // @Produce json
-// @Param model_name query string true "Name of the model to filter by"
+// @Param model_name query string false "Optional name of the model to filter by. If not provided, returns cheapest model per provider"
 // @Param tier query int false "Optional tier to filter by"
 // @Param max_cost query number true "Maximum cost per token (applies to both input and output)"
 // @Success 200 {array} FilterProvidersResponse
@@ -193,23 +193,42 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 			AND p.is_available = true
 			AND NOT p.paused
 			AND ($1::int IS NULL OR p.tier = $1)
+		),
+		ranked_models AS (
+			SELECT 
+				hp.provider_id,
+				hp.username,
+				hp.tier,
+				hp.health_status,
+				hp.api_url,
+				pm.model_name,
+				pm.input_price_tokens,
+				pm.output_price_tokens,
+				pm.average_tps,
+				RANK() OVER (
+					PARTITION BY hp.provider_id 
+					ORDER BY (pm.input_price_tokens + pm.output_price_tokens) ASC
+				) as cost_rank
+			FROM healthy_providers hp
+			JOIN provider_models pm ON pm.provider_id = hp.provider_id
+			WHERE pm.is_active = true
+			AND pm.input_price_tokens <= $3
+			AND pm.output_price_tokens <= $3
+			AND ($2 = '' OR pm.model_name = $2 OR pm.model_name = $2 || ':latest')
 		)
 		SELECT 
-			hp.provider_id,
-			hp.username,
-			hp.tier,
-			hp.health_status,
-			hp.api_url,
-			pm.input_price_tokens,
-			pm.output_price_tokens,
-			pm.average_tps
-		FROM healthy_providers hp
-		JOIN provider_models pm ON pm.provider_id = hp.provider_id
-		WHERE (pm.model_name = $2 OR pm.model_name = $2 || ':latest')
-		AND pm.is_active = true
-		AND pm.input_price_tokens <= $3
-		AND pm.output_price_tokens <= $3
-		ORDER BY hp.tier ASC, pm.average_tps DESC;
+			provider_id,
+			username,
+			tier,
+			health_status,
+			api_url,
+			model_name,
+			input_price_tokens,
+			output_price_tokens,
+			average_tps
+		FROM ranked_models
+		WHERE ($2 != '' OR cost_rank = 1)  -- If no model specified, take cheapest
+		ORDER BY tier ASC, average_tps DESC;
 	`
 
 	rows, err := h.service.db.QueryContext(c.Request().Context(), query, req.Tier, req.ModelName, req.MaxCost)
@@ -227,6 +246,7 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 			&p.Tier,
 			&p.HealthStatus,
 			&p.APIURL,
+			&p.ModelName,
 			&p.InputCost,
 			&p.OutputCost,
 			&p.AverageTPS,

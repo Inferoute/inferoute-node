@@ -157,16 +157,19 @@ go build -o bin/test_payment_processor test_payment_processor.go
 ## Develpoment 
 
 # First bring everything down
+```bash
 docker compose -f docker/compose/docker-compose.yml \
                -f docker/compose/docker-compose.dev.yml \
                --env-file docker/env/development.env \
                --profile development down 
-
+```
 # Then bring it back up
+```bash
 docker compose -f docker/compose/docker-compose.yml \
                -f docker/compose/docker-compose.dev.yml \
                --env-file docker/env/development.env \
                --profile development up -d
+```
 
 
 ## Production 
