@@ -105,12 +105,6 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	}
 	defer resp.Body.Close()
 
-	s.logger.Info("Response received from provider")
-	s.logger.Info("Response headers:")
-	for k, v := range resp.Header {
-		s.logger.Info("  %s: %v", k, v)
-	}
-
 	// Check response status code first
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, err := io.ReadAll(resp.Body)
@@ -132,25 +126,16 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 
 	// Check if response is SSE format either by content type or content
 	contentType := resp.Header.Get("Content-Type")
-	isSSEContentType := strings.Contains(strings.ToLower(contentType), "text/event-stream") ||
+	isSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream") ||
 		strings.Contains(strings.ToLower(contentType), "application/x-ndjson") ||
-		strings.Contains(strings.ToLower(contentType), "application/stream+json")
-	isSSEContent := len(peek) >= 5 && string(peek[:5]) == "data:"
-	isSSE := isSSEContentType || isSSEContent
-
-	s.logger.Info("SSE detection:")
-	s.logger.Info("  Content-Type: %s", contentType)
-	s.logger.Info("  Content peek: %q", string(peek))
-	s.logger.Info("  Is SSE by Content-Type: %v", isSSEContentType)
-	s.logger.Info("  Is SSE by content: %v", isSSEContent)
-	s.logger.Info("  Final SSE detection: %v", isSSE)
+		strings.Contains(strings.ToLower(contentType), "application/stream+json") ||
+		(len(peek) >= 5 && string(peek[:5]) == "data:")
 
 	if isSSE {
-		s.logger.Info("Handling as SSE response")
+		s.logger.Info("Detected streaming response (Content-Type: %s, starts with 'data:': %v)",
+			contentType, len(peek) >= 5 && string(peek[:5]) == "data:")
 		return s.handleSSEResponse(bodyReader)
 	}
-
-	s.logger.Info("Handling as regular JSON response")
 
 	// For non-SSE responses, handle as regular JSON
 	bodyBytes, err := io.ReadAll(bodyReader)
@@ -233,7 +218,7 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 		role = "assistant"
 	}
 
-	// Use the provider's usage stats or default if not provided
+	// If no usage was found, create default usage
 	if usage == nil {
 		usage = map[string]interface{}{
 			"prompt_tokens":     0,
@@ -261,5 +246,6 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 		"usage": usage,
 	}
 
+	s.logger.Info("Constructed OpenAI-compatible response: %+v", response)
 	return response, nil
 }
