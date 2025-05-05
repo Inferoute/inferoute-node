@@ -1,8 +1,11 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -76,9 +79,28 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 	ctx = context.WithValue(ctx, "api_key", apiKey)
 	c.SetRequest(c.Request().WithContext(ctx))
 
-	// Parse request body
+	// Debug: Log raw request body
+	var rawBody map[string]interface{}
+	rawBytes, err := io.ReadAll(c.Request().Body)
+	if err != nil {
+		h.logger.Error("Failed to read request body: %v", err)
+		return common.ErrBadRequest(fmt.Errorf("failed to read request body: %w", err))
+	}
+	h.logger.Info("Raw request body: %s", string(rawBytes))
+
+	// Restore the request body for later use
+	c.Request().Body = io.NopCloser(bytes.NewBuffer(rawBytes))
+
+	if err := json.Unmarshal(rawBytes, &rawBody); err != nil {
+		h.logger.Error("Failed to parse raw request body: %v", err)
+		return common.ErrBadRequest(fmt.Errorf("invalid request body: %w", err))
+	}
+	h.logger.Info("Parsed request body: %+v", rawBody)
+
+	// Parse request body into OpenAIRequest
 	var req OpenAIRequest
-	if err := c.Bind(&req); err != nil {
+	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		h.logger.Error("Failed to parse request into OpenAIRequest: %v", err)
 		return common.ErrBadRequest(fmt.Errorf("invalid request body: %w", err))
 	}
 
@@ -118,6 +140,13 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 				"code":    http.StatusInternalServerError,
 			},
 		})
+	}
+
+	// Extract response_data from provider response
+	if responseMap, ok := response.(map[string]interface{}); ok {
+		if responseData, ok := responseMap["response_data"]; ok {
+			return c.JSON(http.StatusOK, responseData)
+		}
 	}
 
 	return c.JSON(http.StatusOK, response)

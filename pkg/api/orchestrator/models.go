@@ -1,7 +1,9 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -26,8 +28,59 @@ type OpenAIRequest struct {
 
 // Message represents a chat message - only used for basic validation
 type Message struct {
-	Role    string `json:"role" validate:"required,oneof=system user assistant"`
-	Content string `json:"content" validate:"required"`
+	Role    string      `json:"role" validate:"required,oneof=system user assistant"`
+	Content interface{} `json:"content" validate:"required"` // Can be string, array, or map
+}
+
+// GetContent returns the content as a string, handling various content types
+func (m *Message) GetContent() string {
+	switch v := m.Content.(type) {
+	case string:
+		return v
+	case []interface{}:
+		parts := make([]string, len(v))
+		for i, part := range v {
+			switch p := part.(type) {
+			case string:
+				parts[i] = p
+			case map[string]interface{}:
+				if text, ok := p["text"].(string); ok {
+					parts[i] = text
+				} else {
+					parts[i] = fmt.Sprintf("%v", p)
+				}
+			default:
+				parts[i] = fmt.Sprintf("%v", p)
+			}
+		}
+		return strings.Join(parts, "")
+	case map[string]interface{}:
+		if text, ok := v["text"].(string); ok {
+			return text
+		}
+		return fmt.Sprintf("%v", v)
+	default:
+		return fmt.Sprintf("%v", m.Content)
+	}
+}
+
+// UnmarshalJSON implements custom unmarshaling for Message
+func (m *Message) UnmarshalJSON(data []byte) error {
+	// First try to unmarshal into a temporary struct
+	type TempMessage struct {
+		Role    string      `json:"role"`
+		Content interface{} `json:"content"`
+	}
+	var temp TempMessage
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	// Set the role
+	m.Role = temp.Role
+	m.Content = temp.Content
+
+	return nil
 }
 
 // ConsumerSettings represents the consumer's price settings

@@ -39,7 +39,7 @@ func (h *Handler) Register(e *echo.Echo) {
 // @Accept json
 // @Produce json
 // @Param request body SendRequestRequest true "Request details"
-// @Success 200 {object} SendRequestResponse
+// @Success 200 {object} interface{} "Provider response"
 // @Failure 400 {object} common.ErrorResponse
 // @Failure 404 {object} common.ErrorResponse
 // @Failure 500 {object} common.ErrorResponse

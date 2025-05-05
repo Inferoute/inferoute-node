@@ -50,6 +50,17 @@ services:
       - "traefik.http.services.orchestrator.loadbalancer.server.port=8080"
       - "traefik.http.routers.orchestrator.tls.certresolver=letsencrypt"
 
+  ai-applications:
+    build:
+      args:
+        ENVIRONMENT: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai-applications.rule=Host(`core.inferoute.com`) && PathPrefix(`/v1/models`)"
+      - "traefik.http.routers.ai-applications.entrypoints=websecure"
+      - "traefik.http.services.ai-applications.loadbalancer.server.port=8087"
+      - "traefik.http.routers.ai-applications.tls.certresolver=letsencrypt"
+
   provider-management:
     build:
       args:
