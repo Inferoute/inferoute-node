@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/sentnl/inferoute-node/internal/db"
@@ -105,12 +107,35 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	}
 	defer resp.Body.Close()
 
+	// Check content type
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(strings.ToLower(contentType), "application/json") {
+		// Read the response body for logging
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			s.logger.Error("Failed to read non-JSON response body: %v", err)
+		} else {
+			s.logger.Error("Received non-JSON response (Content-Type: %s): %s", contentType, string(bodyBytes))
+		}
+		return nil, common.ErrInternalServer(fmt.Errorf("provider returned non-JSON response (Content-Type: %s)", contentType))
+	}
+
 	// Parse the response
 	decodeStartTime := time.Now()
 	var responseData map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&responseData); err != nil {
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		s.logger.Error("Failed to read response body: %v", err)
+		return nil, common.ErrInternalServer(fmt.Errorf("error reading response body: %w", err))
+	}
+
+	// Log the raw response for debugging
+	s.logger.Info("Raw response body: %s", string(bodyBytes))
+
+	if err := json.Unmarshal(bodyBytes, &responseData); err != nil {
 		decodeTime := time.Since(decodeStartTime).Milliseconds()
 		s.logger.Error("Failed to parse provider response after %dms: %v", decodeTime, err)
+		s.logger.Error("Raw response that failed to parse: %s", string(bodyBytes))
 		return nil, common.ErrInternalServer(fmt.Errorf("error parsing provider response: %w", err))
 	}
 	decodeTime := time.Since(decodeStartTime).Milliseconds()

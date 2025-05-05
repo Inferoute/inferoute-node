@@ -185,7 +185,6 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 
 	// If we have user providers, prioritize them
 	if len(userProviders) > 0 {
-		s.logger.Info("GERT: %v", userProviders)
 		// Get up to 10 user providers
 		userProviderCount := min(10, len(userProviders))
 		userProvidersList := userProviders[:userProviderCount]
