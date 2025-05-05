@@ -15,8 +15,12 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+# Add build arguments for service configuration
+ARG SERVICE_NAME
+ARG SERVICE_PORT
+
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /go/bin/app ./cmd/provider-communication
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /go/bin/app ./cmd/${SERVICE_NAME}
 
 # Use a small alpine image for the final image
 FROM alpine:3.18
@@ -29,6 +33,7 @@ RUN adduser -D -g '' appuser
 
 # Add build argument for environment
 ARG ENVIRONMENT=development
+ARG SERVICE_PORT
 
 # Copy the binary and appropriate .env from the builder stage
 COPY --from=builder /go/bin/app /app
@@ -41,7 +46,7 @@ RUN chown appuser:appuser /app /.env
 USER appuser
 
 # Expose the port the service runs on
-EXPOSE 8083
+EXPOSE ${SERVICE_PORT}
 
 # Command to run the application
 CMD ["/app"] 

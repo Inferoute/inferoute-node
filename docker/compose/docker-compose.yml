@@ -15,7 +15,10 @@ services:
   orchestrator:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.orchestrator
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: orchestrator
+        SERVICE_PORT: 8080
     container_name: orchestrator
     environment:
       <<: *common-variables
@@ -35,13 +38,16 @@ services:
   auth:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.auth
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: auth
+        SERVICE_PORT: 8081
     container_name: auth
     environment:
       <<: *common-variables
-      SERVER_PORT: 8081
       AUTH_HMACSECRET: ${AUTH_HMACSECRET}
       AUTH_TOKENDURATION: ${AUTH_TOKENDURATION}
+      SERVER_PORT: 8081
     expose:
       - "8081"
     depends_on:
@@ -54,7 +60,10 @@ services:
   provider-management:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.provider-management
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: provider-management
+        SERVICE_PORT: 8082
     container_name: provider-management
     environment:
       <<: *common-variables
@@ -74,7 +83,10 @@ services:
   provider-communication:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.provider-communication
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: provider-communication
+        SERVICE_PORT: 8083
     container_name: provider-communication
     environment:
       <<: *common-variables
@@ -91,7 +103,10 @@ services:
   provider-health:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.provider-health
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: provider-health
+        SERVICE_PORT: 8084
     container_name: provider-health
     environment:
       <<: *common-variables
@@ -111,7 +126,10 @@ services:
   model-pricing:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.model-pricing
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: model-pricing
+        SERVICE_PORT: 8085
     container_name: model-pricing
     environment:
       <<: *common-variables
@@ -131,7 +149,10 @@ services:
   scheduler:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.scheduler
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: scheduler
+        SERVICE_PORT: 8080
     container_name: scheduler
     environment:
       <<: *common-variables
@@ -145,7 +166,10 @@ services:
   payment-processing:
     build:
       context: ../..
-      dockerfile: docker/Dockerfile.payment-processing
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: payment-processing
+        SERVICE_PORT: 8086
     container_name: payment-processing
     environment:
       <<: *common-variables
@@ -157,6 +181,28 @@ services:
       - cockroachdb
     networks:
       - inferoute-net
+    restart: unless-stopped
+
+  ai-applications:
+    build:
+      context: ../..
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: ai-applications
+        SERVICE_PORT: 8087
+    container_name: ai-applications
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8087
+    expose:
+      - "8087"
+    depends_on:
+      - cockroachdb
+    networks:
+      - inferoute-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.ai-applications.loadbalancer.server.port=8087"
     restart: unless-stopped
 
   # CockroachDB container

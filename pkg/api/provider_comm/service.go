@@ -31,7 +31,7 @@ func NewService(db *db.DB, logger *common.Logger) *Service {
 }
 
 // SendRequest sends a request to a provider and waits for the response
-func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (*SendRequestResponse, error) {
+func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[string]interface{}, error) {
 	totalStartTime := time.Now()
 
 	// Send the request_data directly as it's already in the correct format
@@ -101,11 +101,7 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (*Sen
 
 	if err != nil {
 		s.logger.Error("Provider request failed after %dms: %v", networkTime, err)
-		return &SendRequestResponse{
-			Success: false,
-			Error:   fmt.Sprintf("error sending request to provider: %v", err),
-			Latency: latency,
-		}, nil
+		return nil, common.ErrInternalServer(fmt.Errorf("error sending request to provider: %w", err))
 	}
 	defer resp.Body.Close()
 
@@ -115,30 +111,23 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (*Sen
 	if err := json.NewDecoder(resp.Body).Decode(&responseData); err != nil {
 		decodeTime := time.Since(decodeStartTime).Milliseconds()
 		s.logger.Error("Failed to parse provider response after %dms: %v", decodeTime, err)
-		return &SendRequestResponse{
-			Success: false,
-			Error:   fmt.Sprintf("error parsing provider response: %v", err),
-			Latency: latency,
-		}, nil
+		return nil, common.ErrInternalServer(fmt.Errorf("error parsing provider response: %w", err))
 	}
 	decodeTime := time.Since(decodeStartTime).Milliseconds()
 
-	response := &SendRequestResponse{
-		Success:      resp.StatusCode == http.StatusOK,
-		ResponseData: responseData,
-		Latency:      latency,
-	}
-
-	// Log the complete response for debugging
+	// Log timing metrics
 	s.logger.Info("Provider Response:")
 	s.logger.Info("  Status Code: %d", resp.StatusCode)
-	s.logger.Info("  Success: %v", response.Success)
-	s.logger.Info("  Latency: %dms", response.Latency)
+	s.logger.Info("  Latency: %dms", latency)
 	s.logger.Info("  Network Time: %dms", networkTime)
 	s.logger.Info("  Response Decode Time: %dms", decodeTime)
 	s.logger.Info("  Marshal Request Time: %dms", marshalTime)
 	s.logger.Info("  Total Provider Comm Time: %dms", time.Since(totalStartTime).Milliseconds())
-	s.logger.Info("  Response Data: %+v", response.ResponseData)
+	s.logger.Info("  Response Data: %+v", responseData)
 
-	return response, nil
+	if resp.StatusCode != http.StatusOK {
+		return nil, common.ErrInternalServer(fmt.Errorf("provider returned status %d", resp.StatusCode))
+	}
+
+	return responseData, nil
 }

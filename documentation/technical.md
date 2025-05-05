@@ -1201,18 +1201,61 @@ We will need some Cloud cron thing to run the check for stale providers and upda
   - Collects and stores time-series pricing data for visualization in candlestick charts
   - Exposes internal API for scheduled price updates
 
-## 10.  CockroachDB - DONE!!!!
+## 10. AI Applications Service (GO)
+
+- **Role:** Provides an OpenAI-compatible API endpoint that returns the top 10 models by transaction count in a format matching OpenAI's `/v1/models` endpoint.
+
+- **Endpoints (HTTP/JSON):**
+
+  1. **GET /v1/models** - Public API
+     - Description: Returns top 10 models by transaction count in OpenAI-compatible format
+     - Authentication: None required
+     - Response:
+       ```json
+       {
+         "object": "list",
+         "data": [
+           {
+             "id": "llama2",
+             "object": "model",
+             "created": 1677610602,
+             "owned_by": "inferoute"
+           },
+           {
+             "id": "mistral",
+             "object": "model",
+             "created": 1677649963,
+             "owned_by": "inferoute"
+           }
+         ]
+       }
+       ```
+     - Notes:
+       - Models are sorted by transaction count in descending order
+       - Limited to top 10 most used models
+       - Format matches OpenAI API for compatibility
+       - `created` timestamp is fixed for compatibility
+       - `owned_by` is always "inferoute"
+
+- **Key Features:**
+  - OpenAI API compatibility
+  - Automatic model ranking by usage
+  - Cached responses for performance (5 minute TTL)
+  - Proper error handling with standard HTTP codes
+  - Metrics tracking for endpoint usage
+
+## 11. CockroachDB - DONE!!!!
 
 -  **Role:** Distributed data store for users, API keys, HMACs, provider data, and transaction records.
 
-## 11.  Logging and Monitoring Service - NOT DONE
+## 12. Logging and Monitoring Service - NOT DONE
 
 -  **Role:** Capeture and store logs from all of our services.
 
 Use OpenTelemetry to capture logs from all of our services and send to datadog
 OR use this - https://www.multiplayer.app/docs/  Auto-documentation and provides network map
 
-## 12. Scheduler Service (GO)
+## 13. Scheduler Service (GO)
 
 - **Role:** Manages and executes periodic tasks across the system. Ensures critical maintenance and update operations are performed at regular intervals.
 
@@ -1266,7 +1309,7 @@ OR use this - https://www.multiplayer.app/docs/  Auto-documentation and provides
   - Runs on the central node
   - Supports horizontal scaling if needed
 
-## 13. Provider Client (GO)
+## 14. Provider Client (GO)
 
 - Should be applied via Docker - make sure docker is small and efficient as can be.
 - Documentation to run client on your own (this will include the cron jon to send health updates)

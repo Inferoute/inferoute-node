@@ -533,7 +533,7 @@ func (s *Service) generateHMAC(_ context.Context, consumerID uuid.UUID, req *Ope
 	// Add first message hash if available
 	if len(req.Messages) > 0 {
 		// Take first 32 chars of the first message as an identifier
-		content := req.Messages[0].Content
+		content := req.Messages[0].GetContent()
 		if len(content) > 32 {
 			content = content[:32]
 		}
@@ -696,23 +696,6 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 			continue // Try next provider
 		}
 
-		// Check if the response indicates success
-		success, ok := response["success"].(bool)
-		if !ok || !success {
-			errMsg := "unknown error"
-			if errStr, ok := response["error"].(string); ok {
-				errMsg = errStr
-			}
-			lastErr = fmt.Errorf("provider request failed: %s", errMsg)
-			s.logger.Error("Provider %s request failed after %dms: %s", provider.ProviderID, commTime, errMsg)
-
-			// Log that we're trying the next provider if there are more
-			if i < len(providers)-1 {
-				s.logger.Info("Trying next provider (%d/%d remaining)", len(providers)-i-1, len(providers))
-			}
-			continue // Try next provider
-		}
-
 		// If we get here, the request was successful
 		totalProviderTime := time.Since(providerStartTime).Milliseconds()
 		s.logger.Info("Request successful with provider %s (total time: %dms, comm time: %dms)",
@@ -734,17 +717,10 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		return fmt.Errorf("invalid response format")
 	}
 
-	// Extract usage information from response_data
-	responseData, ok := responseMap["response_data"].(map[string]interface{})
-	if !ok {
-		s.logger.Error("DEBUG: response_data is not a map: %T", responseMap["response_data"])
-		return fmt.Errorf("invalid response_data format")
-	}
-
 	// Extract usage information
-	usage, ok := responseData["usage"].(map[string]interface{})
+	usage, ok := responseMap["usage"].(map[string]interface{})
 	if !ok {
-		s.logger.Error("DEBUG: usage is not a map: %T", responseData["usage"])
+		s.logger.Error("DEBUG: usage is not a map: %T", responseMap["usage"])
 		return fmt.Errorf("missing usage information in response")
 	}
 
