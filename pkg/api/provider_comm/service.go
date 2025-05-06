@@ -105,6 +105,12 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	}
 	defer resp.Body.Close()
 
+	s.logger.Info("Response received from provider")
+	s.logger.Info("Response headers:")
+	for k, v := range resp.Header {
+		s.logger.Info("  %s: %v", k, v)
+	}
+
 	// Check response status code first
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, err := io.ReadAll(resp.Body)
@@ -126,16 +132,25 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 
 	// Check if response is SSE format either by content type or content
 	contentType := resp.Header.Get("Content-Type")
-	isSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream") ||
+	isSSEContentType := strings.Contains(strings.ToLower(contentType), "text/event-stream") ||
 		strings.Contains(strings.ToLower(contentType), "application/x-ndjson") ||
-		strings.Contains(strings.ToLower(contentType), "application/stream+json") ||
-		(len(peek) >= 5 && string(peek[:5]) == "data:")
+		strings.Contains(strings.ToLower(contentType), "application/stream+json")
+	isSSEContent := len(peek) >= 5 && string(peek[:5]) == "data:"
+	isSSE := isSSEContentType || isSSEContent
+
+	s.logger.Info("SSE detection:")
+	s.logger.Info("  Content-Type: %s", contentType)
+	s.logger.Info("  Content peek: %q", string(peek))
+	s.logger.Info("  Is SSE by Content-Type: %v", isSSEContentType)
+	s.logger.Info("  Is SSE by content: %v", isSSEContent)
+	s.logger.Info("  Final SSE detection: %v", isSSE)
 
 	if isSSE {
-		s.logger.Info("Detected streaming response (Content-Type: %s, starts with 'data:': %v)",
-			contentType, len(peek) >= 5 && string(peek[:5]) == "data:")
+		s.logger.Info("Handling as SSE response")
 		return s.handleSSEResponse(bodyReader)
 	}
+
+	s.logger.Info("Handling as regular JSON response")
 
 	// For non-SSE responses, handle as regular JSON
 	bodyBytes, err := io.ReadAll(bodyReader)
@@ -151,6 +166,7 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 		return nil, common.ErrInternalServer(fmt.Errorf("error parsing provider response: %w", err))
 	}
 
+	s.logger.Info("Successfully parsed JSON response: %s", string(bodyBytes))
 	return responseData, nil
 }
 
@@ -161,6 +177,7 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 	var lastChunk map[string]interface{}
 	var role string
 	var usage map[string]interface{}
+	chunkCount := 0
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -170,6 +187,7 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
+			s.logger.Info("Received [DONE] signal after %d chunks", chunkCount)
 			break
 		}
 
@@ -179,6 +197,9 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 			s.logger.Error("Raw chunk that failed to parse: %s", data)
 			continue
 		}
+
+		chunkCount++
+		s.logger.Info("Successfully parsed SSE chunk %d: %s", chunkCount, data)
 
 		// Store the last valid chunk for metadata
 		lastChunk = chunk
@@ -213,28 +234,28 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 		return nil, common.ErrInternalServer(fmt.Errorf("no valid chunks received"))
 	}
 
+	s.logger.Info("Successfully processed %d SSE chunks", chunkCount)
+
 	// If no role was found in deltas, default to "assistant"
 	if role == "" {
 		role = "assistant"
 	}
 
-	// If no usage was found, create default usage
+	// Use the provider's usage stats or default if not provided
 	if usage == nil {
 		usage = map[string]interface{}{
-			"prompt_tokens":         100,
-			"completion_tokens":     20,
-			"prompt_tokens_details": nil,
-			"total_tokens":          120,
+			"prompt_tokens":     0,
+			"completion_tokens": 0,
+			"total_tokens":      0,
 		}
 	}
 
 	// Construct final response in OpenAI format
 	response := map[string]interface{}{
-		"id":              lastChunk["id"],
-		"object":          "chat.completion",
-		"prompt_logprobs": nil,
-		"created":         lastChunk["created"],
-		"model":           lastChunk["model"],
+		"id":      lastChunk["id"],
+		"object":  "chat.completion",
+		"created": lastChunk["created"],
+		"model":   lastChunk["model"],
 		"choices": []map[string]interface{}{
 			{
 				"index": 0,
@@ -248,6 +269,5 @@ func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, err
 		"usage": usage,
 	}
 
-	s.logger.Info("Constructed OpenAI-compatible response: %+v", response)
 	return response, nil
 }
