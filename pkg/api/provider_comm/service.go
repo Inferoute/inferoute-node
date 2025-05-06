@@ -1,14 +1,12 @@
 package provider_comm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/sentnl/inferoute-node/internal/db"
@@ -33,8 +31,8 @@ func NewService(db *db.DB, logger *common.Logger) *Service {
 	}
 }
 
-// SendRequest sends a request to a provider and waits for the response
-func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[string]interface{}, error) {
+// SendRequest sends a request to a provider and returns the raw response
+func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (io.ReadCloser, error) {
 	// Send the request_data directly as it's already in the correct format
 	requestBody, err := json.Marshal(req.RequestData)
 	if err != nil {
@@ -68,7 +66,6 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 		s.logger.Error("Provider request failed after %dms: %v", networkTime, err)
 		return nil, common.ErrInternalServer(fmt.Errorf("error sending request to provider: %w", err))
 	}
-	defer resp.Body.Close()
 
 	s.logger.Info("Response received from provider")
 	s.logger.Info("Response headers:")
@@ -79,6 +76,7 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	// Check response status code first
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		if err != nil {
 			s.logger.Error("Failed to read error response body: %v", err)
 		} else {
@@ -87,122 +85,6 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 		return nil, common.ErrInternalServer(fmt.Errorf("provider returned status %d", resp.StatusCode))
 	}
 
-	// For non-error responses, just read and return the response body
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		s.logger.Error("Failed to read response body: %v", err)
-		return nil, common.ErrInternalServer(fmt.Errorf("error reading response body: %w", err))
-	}
-
-	var responseData map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &responseData); err != nil {
-		s.logger.Error("Failed to parse JSON response: %v", err)
-		s.logger.Error("Raw response that failed to parse: %s", string(bodyBytes))
-		return nil, common.ErrInternalServer(fmt.Errorf("error parsing provider response: %w", err))
-	}
-
-	s.logger.Info("Successfully parsed JSON response: %s", string(bodyBytes))
-	return responseData, nil
-}
-
-// handleSSEResponse processes a Server-Sent Events response and combines the chunks
-func (s *Service) handleSSEResponse(body io.Reader) (map[string]interface{}, error) {
-	scanner := bufio.NewScanner(body)
-	var fullContent string
-	var lastChunk map[string]interface{}
-	var role string
-	var usage map[string]interface{}
-	chunkCount := 0
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			s.logger.Info("Received [DONE] signal after %d chunks", chunkCount)
-			break
-		}
-
-		var chunk map[string]interface{}
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			s.logger.Error("Failed to parse SSE chunk: %v", err)
-			s.logger.Error("Raw chunk that failed to parse: %s", data)
-			continue
-		}
-
-		chunkCount++
-		s.logger.Info("Successfully parsed SSE chunk %d: %s", chunkCount, data)
-
-		// Store the last valid chunk for metadata
-		lastChunk = chunk
-
-		// Extract usage if present
-		if u, ok := chunk["usage"].(map[string]interface{}); ok {
-			usage = u
-		}
-
-		// Extract content from the chunk
-		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]interface{}); ok {
-				if delta, ok := choice["delta"].(map[string]interface{}); ok {
-					// Check for role in the first chunk
-					if r, ok := delta["role"].(string); ok {
-						role = r
-					}
-					// Accumulate content
-					if content, ok := delta["content"].(string); ok {
-						fullContent += content
-					}
-				}
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, common.ErrInternalServer(fmt.Errorf("error reading SSE stream: %w", err))
-	}
-
-	if lastChunk == nil {
-		return nil, common.ErrInternalServer(fmt.Errorf("no valid chunks received"))
-	}
-
-	s.logger.Info("Successfully processed %d SSE chunks", chunkCount)
-
-	// If no role was found in deltas, default to "assistant"
-	if role == "" {
-		role = "assistant"
-	}
-
-	// Use the provider's usage stats or default if not provided
-	if usage == nil {
-		usage = map[string]interface{}{
-			"prompt_tokens":     0,
-			"completion_tokens": 0,
-			"total_tokens":      0,
-		}
-	}
-
-	// Construct final response in OpenAI format
-	response := map[string]interface{}{
-		"id":      lastChunk["id"],
-		"object":  "chat.completion",
-		"created": lastChunk["created"],
-		"model":   lastChunk["model"],
-		"choices": []map[string]interface{}{
-			{
-				"index": 0,
-				"message": map[string]interface{}{
-					"role":    role,
-					"content": fullContent,
-				},
-				"finish_reason": "stop",
-			},
-		},
-		"usage": usage,
-	}
-
-	return response, nil
+	// Return the raw response body - let the caller handle streaming/parsing
+	return resp.Body, nil
 }
