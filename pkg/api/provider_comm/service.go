@@ -70,6 +70,12 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 		s.logger.Info("temperature already exists in request data: %v", requestData["temperature"])
 	}
 
+	// Set streaming header based on request data
+	isStreamingRequested := false
+	if stream, ok := requestData["stream"].(bool); ok {
+		isStreamingRequested = stream
+	}
+
 	requestBody, err := json.Marshal(requestData)
 	if err != nil {
 		return nil, common.ErrInternalServer(fmt.Errorf("error marshaling request: %w", err))
@@ -85,6 +91,7 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Request-ID", req.HMAC) // Use HMAC as request ID
 	httpReq.Header.Set("X-Model-Name", req.ModelName)
+	httpReq.Header.Set("X-Stream", fmt.Sprintf("%v", isStreamingRequested))
 
 	// Log the outgoing request for debugging
 	s.logger.Info("Sending request to provider:")
@@ -136,17 +143,10 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 		strings.Contains(strings.ToLower(contentType), "application/x-ndjson") ||
 		strings.Contains(strings.ToLower(contentType), "application/stream+json")
 	isSSEContent := len(peek) >= 5 && string(peek[:5]) == "data:"
-	isSSE := isSSEContentType || isSSEContent
 
-	s.logger.Info("SSE detection:")
-	s.logger.Info("  Content-Type: %s", contentType)
-	s.logger.Info("  Content peek: %q", string(peek))
-	s.logger.Info("  Is SSE by Content-Type: %v", isSSEContentType)
-	s.logger.Info("  Is SSE by content: %v", isSSEContent)
-	s.logger.Info("  Final SSE detection: %v", isSSE)
-
-	if isSSE {
-		s.logger.Info("Handling as SSE response")
+	// If streaming wasn't requested but provider returns SSE, handle it gracefully
+	if !isStreamingRequested && (isSSEContentType || isSSEContent) {
+		s.logger.Info("Provider returned SSE when not requested, handling as SSE")
 		return s.handleSSEResponse(bodyReader)
 	}
 
