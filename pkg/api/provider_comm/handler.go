@@ -1,6 +1,7 @@
 package provider_comm
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 
@@ -61,12 +62,20 @@ func (h *Handler) SendRequest(c echo.Context) error {
 	}
 	defer responseBody.Close()
 
+	// Create a buffer to store chunks for logging
+	var logBuffer bytes.Buffer
+	teeReader := io.TeeReader(responseBody, &logBuffer)
+
 	// Copy headers from provider response
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().Header().Set("Transfer-Encoding", "chunked")
 	c.Response().WriteHeader(http.StatusOK)
 
-	// Stream the response body directly to the client
-	_, err = io.Copy(c.Response(), responseBody)
+	// Stream the response body directly to the client while also logging
+	_, err = io.Copy(c.Response(), teeReader)
+
+	// Log what was sent to the client
+	h.logger.Info("Raw response sent to client: %s", logBuffer.String())
+
 	return err
 }
