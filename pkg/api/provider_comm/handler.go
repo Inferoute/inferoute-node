@@ -1,7 +1,8 @@
 package provider_comm
 
 import (
-	"bytes"
+	"context"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -62,20 +63,68 @@ func (h *Handler) SendRequest(c echo.Context) error {
 	}
 	defer responseBody.Close()
 
-	// Create a buffer to store chunks for logging
-	var logBuffer bytes.Buffer
-	teeReader := io.TeeReader(responseBody, &logBuffer)
+	// Check if request wants streaming
+	isStreaming := false
+	if reqData, ok := req.RequestData["stream"]; ok {
+		if streamBool, ok := reqData.(bool); ok {
+			isStreaming = streamBool
+		}
+	}
 
-	// Copy headers from provider response
+	if isStreaming {
+		// Set streaming headers
+		c.Response().Header().Set("Content-Type", "text/event-stream")
+		c.Response().Header().Set("Cache-Control", "no-cache")
+		c.Response().Header().Set("Connection", "keep-alive")
+		c.Response().WriteHeader(http.StatusOK)
+
+		// Create a done channel for cleanup
+		done := make(chan error)
+
+		// Start streaming in a goroutine
+		go func() {
+			buffer := make([]byte, 1024)
+			for {
+				select {
+				case <-c.Request().Context().Done():
+					done <- c.Request().Context().Err()
+					return
+				default:
+					n, err := responseBody.Read(buffer)
+					if n > 0 {
+						// Write chunk to response
+						if _, writeErr := c.Response().Write(buffer[:n]); writeErr != nil {
+							done <- writeErr
+							return
+						}
+						c.Response().Flush()
+					}
+					if err == io.EOF {
+						done <- nil
+						return
+					}
+					if err != nil {
+						done <- err
+						return
+					}
+				}
+			}
+		}()
+
+		// Wait for streaming to complete or context to cancel
+		if err := <-done; err != nil {
+			if err == context.Canceled {
+				h.logger.Info("Client closed connection")
+				return nil
+			}
+			h.logger.Error("Streaming error: %v", err)
+			return common.ErrInternalServer(fmt.Errorf("streaming error: %w", err))
+		}
+		return nil
+	}
+
+	// For non-streaming requests, just copy the response
 	c.Response().Header().Set("Content-Type", "application/json")
-	c.Response().Header().Set("Transfer-Encoding", "chunked")
-	c.Response().WriteHeader(http.StatusOK)
-
-	// Stream the response body directly to the client while also logging
-	_, err = io.Copy(c.Response(), teeReader)
-
-	// Log what was sent to the client
-	h.logger.Info("Raw response sent to client: %s", logBuffer.String())
-
+	_, err = io.Copy(c.Response(), responseBody)
 	return err
 }

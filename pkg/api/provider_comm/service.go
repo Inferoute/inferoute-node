@@ -26,13 +26,24 @@ func NewService(db *db.DB, logger *common.Logger) *Service {
 		db:     db,
 		logger: logger,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				ResponseHeaderTimeout: 30 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
 		},
 	}
 }
 
 // SendRequest sends a request to a provider and returns the raw response
 func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (io.ReadCloser, error) {
+	// Check if request wants streaming
+	isStreaming := false
+	if reqData, ok := req.RequestData["stream"]; ok {
+		if streamBool, ok := reqData.(bool); ok {
+			isStreaming = streamBool
+		}
+	}
+
 	// Send the request_data directly as it's already in the correct format
 	requestBody, err := json.Marshal(req.RequestData)
 	if err != nil {
@@ -49,6 +60,11 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (io.R
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Request-ID", req.HMAC) // Use HMAC as request ID
 	httpReq.Header.Set("X-Model-Name", req.ModelName)
+	if isStreaming {
+		httpReq.Header.Set("Accept", "text/event-stream")
+		httpReq.Header.Set("Cache-Control", "no-cache")
+		httpReq.Header.Set("Connection", "keep-alive")
+	}
 
 	// Log the outgoing request for debugging
 	s.logger.Info("Sending request to provider:")
@@ -63,6 +79,10 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (io.R
 	s.logger.Info("  Network time (just HTTP request): %dms", networkTime)
 
 	if err != nil {
+		if ctx.Err() == context.Canceled {
+			s.logger.Info("Request was canceled by client")
+			return nil, common.ErrInternalServer(fmt.Errorf("request canceled by client"))
+		}
 		s.logger.Error("Provider request failed after %dms: %v", networkTime, err)
 		return nil, common.ErrInternalServer(fmt.Errorf("error sending request to provider: %w", err))
 	}
