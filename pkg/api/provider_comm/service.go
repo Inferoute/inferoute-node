@@ -35,48 +35,8 @@ func NewService(db *db.DB, logger *common.Logger) *Service {
 
 // SendRequest sends a request to a provider and waits for the response
 func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[string]interface{}, error) {
-	totalStartTime := time.Now()
-
 	// Send the request_data directly as it's already in the correct format
-	// Instead of marshaling req.RequestData directly, we need to ensure all fields are preserved
-	// Create a copy of the request data to ensure we don't modify the original
-	requestData := make(map[string]interface{})
-	for k, v := range req.RequestData {
-		requestData[k] = v
-	}
-
-	// Log the request data to verify all fields are included
-	s.logger.Info("Original request data: %+v", requestData)
-
-	// Check if max_tokens exists in the request data
-	if _, exists := requestData["max_tokens"]; !exists {
-		// If not in request data, try to get from context
-		if maxTokens, ok := ctx.Value("max_tokens").(int); ok && maxTokens > 0 {
-			requestData["max_tokens"] = maxTokens
-			s.logger.Info("Added max_tokens=%d from context", maxTokens)
-		}
-	} else {
-		s.logger.Info("max_tokens already exists in request data: %v", requestData["max_tokens"])
-	}
-
-	// Check if temperature exists in the request data
-	if _, exists := requestData["temperature"]; !exists {
-		// If not in request data, try to get from context
-		if temperature, ok := ctx.Value("temperature").(float64); ok {
-			requestData["temperature"] = temperature
-			s.logger.Info("Added temperature=%f from context", temperature)
-		}
-	} else {
-		s.logger.Info("temperature already exists in request data: %v", requestData["temperature"])
-	}
-
-	// Set streaming header based on request data
-	isStreamingRequested := false
-	if stream, ok := requestData["stream"].(bool); ok {
-		isStreamingRequested = stream
-	}
-
-	requestBody, err := json.Marshal(requestData)
+	requestBody, err := json.Marshal(req.RequestData)
 	if err != nil {
 		return nil, common.ErrInternalServer(fmt.Errorf("error marshaling request: %w", err))
 	}
@@ -91,14 +51,12 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Request-ID", req.HMAC) // Use HMAC as request ID
 	httpReq.Header.Set("X-Model-Name", req.ModelName)
-	httpReq.Header.Set("X-Stream", fmt.Sprintf("%v", isStreamingRequested))
 
 	// Log the outgoing request for debugging
 	s.logger.Info("Sending request to provider:")
 	s.logger.Info("  URL: %s", req.ProviderURL)
 	s.logger.Info("  Headers: %v", httpReq.Header)
 	s.logger.Info("  Body: %s", string(requestBody))
-	s.logger.Info("  Request preparation took: %dms", time.Since(totalStartTime).Milliseconds())
 
 	startTime := time.Now()
 	resp, err := s.client.Do(httpReq)
@@ -129,31 +87,8 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (map[
 		return nil, common.ErrInternalServer(fmt.Errorf("provider returned status %d", resp.StatusCode))
 	}
 
-	// Peek at the first few bytes to check for SSE format
-	bodyReader := bufio.NewReader(resp.Body)
-	peek, err := bodyReader.Peek(5) // Look for "data:" prefix
-	if err != nil && err != io.EOF {
-		s.logger.Error("Failed to peek response: %v", err)
-		return nil, common.ErrInternalServer(fmt.Errorf("error reading response: %w", err))
-	}
-
-	// Check if response is SSE format either by content type or content
-	contentType := resp.Header.Get("Content-Type")
-	isSSEContentType := strings.Contains(strings.ToLower(contentType), "text/event-stream") ||
-		strings.Contains(strings.ToLower(contentType), "application/x-ndjson") ||
-		strings.Contains(strings.ToLower(contentType), "application/stream+json")
-	isSSEContent := len(peek) >= 5 && string(peek[:5]) == "data:"
-
-	// If streaming wasn't requested but provider returns SSE, handle it gracefully
-	if !isStreamingRequested && (isSSEContentType || isSSEContent) {
-		s.logger.Info("Provider returned SSE when not requested, handling as SSE")
-		return s.handleSSEResponse(bodyReader)
-	}
-
-	s.logger.Info("Handling as regular JSON response")
-
-	// For non-SSE responses, handle as regular JSON
-	bodyBytes, err := io.ReadAll(bodyReader)
+	// For non-error responses, just read and return the response body
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		s.logger.Error("Failed to read response body: %v", err)
 		return nil, common.ErrInternalServer(fmt.Errorf("error reading response body: %w", err))
