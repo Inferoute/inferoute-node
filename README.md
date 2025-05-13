@@ -114,19 +114,12 @@ docker compose -f docker/compose/docker-compose.yml \
                --profile production up -d
 ```
 
-### 6. Verify services:
+### 6. Create Consumer and Provider user:
 ```bash
-# Check all container statuses
-docker compose -f docker/compose/docker-compose.yml \
-               -f docker/compose/docker-compose.dev.yml \
-               --env-file docker/env/development.env ps
+# Run the script with desired usernames for consumer and provider
+scripts/create_test_users.sh test_consumer test_provider
 
-# Check Traefik routes
-curl -s localhost:8080/api/http/routers | jq
 
-# Access RabbitMQ management UI
-open http://localhost:15672  # Default credentials: inferoute/Nightshade900!
-```
 
 ### Troubleshooting
 
@@ -175,6 +168,7 @@ docker compose -f docker/compose/docker-compose.yml \
 ## Production 
 
 # First bring everything down
+```bash
 docker compose -f docker/compose/docker-compose.yml \
                -f docker/compose/docker-compose.prod.yml \
                --env-file docker/env/production.env \
@@ -186,47 +180,4 @@ docker compose -f docker/compose/docker-compose.yml \
                --env-file docker/env/production.env \
                --profile production up -d
 
-
-### Client for Providers
-Provider nodes need:
-- Nginx server with API key validation and HMAC verification
-- Health status reporting (via cron)
-- Clients can implement their own solution using nginx and cron
-
-# Create a new user
-rabbitmqctl add_user inferoute Nightshade900!
-
-# Give it permissions (configure, write, read) on all resources
-rabbitmqctl set_permissions -p / inferoute ".*" ".*" ".*"
-
-# Make it an administrator (optional, if you need admin access)
-rabbitmqctl set_user_tags inferoute administrator
-
-http://localhost:15672
-
-
-### Start cockcroachdb
-
-
-
-
-FROm DEV to PROD:
-
-
-### Test Payment processor speed to process:
-1. run start_services.sh
-2. run test_payment_processor.go
-
-go build -o bin/test_payment_processor test_payment_processor.go
-./bin/test_payment_processor
-
-### Client for providers
-
-- Needs to have Nginx server with ability to send us their API key  and validate HMAC before sending request to us.
-- Need to have a way to push health status to us, use cron for now.
-- Clients can roll their own using nginx and cron.
-- 
-
-
-
-#### Docker start
+```
