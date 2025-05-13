@@ -119,7 +119,7 @@ type ProviderHealthResponse struct {
 
 // FilterProvidersRequest represents the query parameters for filtering providers
 type FilterProvidersRequest struct {
-	ModelName string  `query:"model_name" validate:"required"`
+	ModelName string  `query:"model_name"`
 	Tier      *int    `query:"tier"`
 	MaxCost   float64 `query:"max_cost" validate:"required,gt=0"`
 }
@@ -131,6 +131,7 @@ type FilterProvidersResponse struct {
 	Tier         int     `json:"tier"`
 	HealthStatus string  `json:"health_status"`
 	APIURL       string  `json:"api_url"`
+	ModelName    string  `json:"model_name"`
 	InputCost    float64 `json:"input_cost"`
 	OutputCost   float64 `json:"output_cost"`
 	AverageTPS   float64 `json:"average_tps"`

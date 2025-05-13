@@ -43,7 +43,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	ctx = context.WithValue(ctx, "internal_key", s.internalAPIKey)
 	ctx = context.WithValue(ctx, "logger", s.logger)
 
-	// Add max_tokens and temperature to context if they exist in the request
+	// 0 Add max_tokens and temperature to context if they exist in the request
 	if req.MaxTokens > 0 {
 		ctx = context.WithValue(ctx, "max_tokens", req.MaxTokens)
 		s.logger.Info("Added max_tokens=%d to context", req.MaxTokens)
@@ -52,6 +52,33 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	if req.Temperature != 0 {
 		ctx = context.WithValue(ctx, "temperature", req.Temperature)
 		s.logger.Info("Added temperature=%f to context", req.Temperature)
+	}
+
+	// 0.1 Cursor hack - Handle gpt-4o model by getting cheapest available model
+	if req.Model == "gpt-4o" {
+		s.logger.Info("gpt-4o model requested, fetching cheapest available model")
+		response, err := common.MakeInternalRequestRaw(
+			ctx,
+			"GET",
+			common.ProviderHealthService,
+			fmt.Sprintf("/api/health/providers/filter?max_cost=%f", 1.0), // Using 1.0 as default max cost
+			nil,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error getting cheapest model: %w", err)
+		}
+
+		var providersData []map[string]interface{}
+		if err := json.Unmarshal(response, &providersData); err != nil {
+			return nil, fmt.Errorf("error decoding response: %w", err)
+		}
+
+		if len(providersData) > 0 {
+			if modelName, ok := providersData[0]["model_name"].(string); ok {
+				s.logger.Info("Using cheapest model: %s instead of gpt-4o", modelName)
+				req.Model = modelName
+			}
+		}
 	}
 
 	// 1. Validate API key
@@ -158,7 +185,6 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 
 	// If we have user providers, prioritize them
 	if len(userProviders) > 0 {
-		s.logger.Info("GERT: %v", userProviders)
 		// Get up to 10 user providers
 		userProviderCount := min(10, len(userProviders))
 		userProvidersList := userProviders[:userProviderCount]

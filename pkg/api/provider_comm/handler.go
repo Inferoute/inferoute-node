@@ -1,6 +1,8 @@
 package provider_comm
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
@@ -54,10 +56,26 @@ func (h *Handler) SendRequest(c echo.Context) error {
 		return common.NewBadRequestError("validation failed")
 	}
 
-	response, err := h.service.SendRequest(c.Request().Context(), req)
+	responseBody, err := h.service.SendRequest(c.Request().Context(), req)
 	if err != nil {
 		return err // Service errors are already properly formatted
 	}
+	defer responseBody.Close()
 
-	return c.JSON(http.StatusOK, response)
+	// Create a buffer to store chunks for logging
+	var logBuffer bytes.Buffer
+	teeReader := io.TeeReader(responseBody, &logBuffer)
+
+	// Copy headers from provider response
+	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set("Transfer-Encoding", "chunked")
+	c.Response().WriteHeader(http.StatusOK)
+
+	// Stream the response body directly to the client while also logging
+	_, err = io.Copy(c.Response(), teeReader)
+
+	// Log what was sent to the client
+	h.logger.Info("Raw response sent to client: %s", logBuffer.String())
+
+	return err
 }
