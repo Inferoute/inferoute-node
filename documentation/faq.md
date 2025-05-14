@@ -41,17 +41,16 @@ The weighting depends on the `sort` parameter in the request:
 A: The platform uses a multi-step process:
 1. When a request is received, a $1.00 holding deposit is placed. This prevents the consumer from trying to double spend.
 2. The request is forwarded to the selected provider.  
-3. After receiving a response, the holding deposit is released. We also record the costs that the provider had in the DB and is attached to the transaction. This prevents 
-4. The actual cost is calculated based on input/output tokens and provider prices
+3. After receiving a response, the holding deposit is released.
+4. The actual cost is calculated based on input/output tokens and the initial provider prices that were stored when the transaction was created.
 5. A payment message is published to RabbitMQ for processing
 6. The transaction record is updated with the final details
 
-### Q: How do we prevent from updating their costs mid transaction.
-A: 
+### Q: How do we handle provider price changes during transactions?
+A: The platform stores the initial pricing for all selected providers when a transaction is created. When a provider successfully fulfills a request, we use their stored initial pricing for the cost calculations, regardless of any price changes they may have made during the transaction. This ensures fairness and transparency in pricing.
 
-
-### Q: How do we prevent a consumer from double spending.
-A: When a request is received, a $1.00 holding deposit is placed. This prevents the consumer from trying to double spend
+### Q: How do we prevent a consumer from double spending?
+A: When a request is received, a $1.00 holding deposit is placed. This prevents the consumer from trying to double spend.
 
 ### Q: What happens if a provider fails to respond?
 A: If the primary provider fails to respond, the orchestrator will try fallback providers in order of their score. If all providers fail, the holding deposit is released and an error is returned to the user.

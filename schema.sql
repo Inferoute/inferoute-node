@@ -3,8 +3,9 @@ CREATE DATABASE IF NOT EXISTS inferoute;
 USE inferoute;
 
 -- Drop existing tables if they exist (in correct order)
-DROP TABLE IF EXISTS model_pricing_data;
+DROP TABLE IF EXISTS transaction_provider_prices;
 DROP TABLE IF EXISTS provider_cheating_incidents;
+DROP TABLE IF EXISTS model_pricing_data;
 DROP TABLE IF EXISTS provider_health_history;
 DROP TABLE IF EXISTS transactions;
 DROP TABLE IF EXISTS hmacs;
@@ -161,7 +162,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     consumer_cost DECIMAL(18,8),
     provider_earnings DECIMAL(18,8),
     service_fee DECIMAL(18,8),
-    status STRING NOT NULL CHECK (status IN ('pending', 'payment', 'completed', 'failed', 'cheating_detected', 'canceled')),
+    status STRING NOT NULL CHECK (status IN ('pending', 'payment', 'completed', 'failed', 'canceled')),
     created_at TIMESTAMP DEFAULT current_timestamp(),
     updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     INDEX (consumer_id),
@@ -198,22 +199,19 @@ CREATE TABLE IF NOT EXISTS consumer_models (
     CHECK (max_output_price_tokens >= 0)
 );
 
--- Create provider_cheating_incidents table
-CREATE TABLE IF NOT EXISTS provider_cheating_incidents (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- Create transaction_provider_prices table
+CREATE TABLE IF NOT EXISTS transaction_provider_prices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     provider_id UUID NOT NULL REFERENCES providers(id),
-    provider_model_id UUID NOT NULL REFERENCES provider_models(id),
-    transaction_hmac TEXT NOT NULL,
-    transaction_created_at TIMESTAMP NOT NULL,
-    transaction_updated_at TIMESTAMP NOT NULL,
-    model_updated_at TIMESTAMP NOT NULL,
-    input_price_tokens DECIMAL(10, 6) NOT NULL,
-    output_price_tokens DECIMAL(10, 6) NOT NULL,
-    total_input_tokens INTEGER NOT NULL,
-    total_output_tokens INTEGER NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT fk_provider_cheating_incidents_provider FOREIGN KEY (provider_id) REFERENCES providers(id),
-    CONSTRAINT fk_provider_cheating_incidents_provider_model FOREIGN KEY (provider_model_id) REFERENCES provider_models(id)
+    model_name STRING NOT NULL,
+    input_price_tokens DECIMAL(18,8) NOT NULL,
+    output_price_tokens DECIMAL(18,8) NOT NULL,
+    provider_rank INT NOT NULL,
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+    INDEX (transaction_id),
+    INDEX (provider_id)
 );
 
 -- Create model_pricing_data table for candlestick chart data
@@ -250,6 +248,3 @@ VALUES (
     42000, 42000
 )
 ON CONFLICT DO NOTHING;
-
-CREATE INDEX IF NOT EXISTS idx_provider_cheating_incidents_provider_id ON provider_cheating_incidents(provider_id);
-CREATE INDEX IF NOT EXISTS idx_provider_cheating_incidents_transaction_hmac ON provider_cheating_incidents(transaction_hmac);

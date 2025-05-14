@@ -217,7 +217,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 
 	// 6. Create transaction record
 	txStartTime := time.Now()
-	tx, err := s.createTransaction(ctx, consumerID, selectedProvider, req.Model, hmac)
+	tx, err := s.createTransaction(ctx, consumerID, selectedProvider, selectedProviders, req.Model, hmac)
 	s.logger.Info("Creating transaction took: %dms", time.Since(txStartTime).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transaction: %w", err)
@@ -580,7 +580,7 @@ func (s *Service) generateHMAC(_ context.Context, consumerID uuid.UUID, req *Ope
 }
 
 // createTransaction creates a new transaction record
-func (s *Service) createTransaction(ctx context.Context, consumerID uuid.UUID, provider ProviderInfo, model, hmac string) (*TransactionRecord, error) {
+func (s *Service) createTransaction(ctx context.Context, consumerID uuid.UUID, provider ProviderInfo, providers []ProviderInfo, model, hmac string) (*TransactionRecord, error) {
 	tx := &TransactionRecord{
 		ID:                uuid.New(),
 		ConsumerID:        consumerID,
@@ -592,7 +592,15 @@ func (s *Service) createTransaction(ctx context.Context, consumerID uuid.UUID, p
 		Status:            "pending",
 	}
 
-	_, err := s.db.ExecContext(ctx,
+	// Start a database transaction
+	dbTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error starting transaction: %w", err)
+	}
+	defer dbTx.Rollback()
+
+	// Create the main transaction record
+	_, err = dbTx.ExecContext(ctx,
 		`INSERT INTO transactions (
 			id, consumer_id, provider_id, hmac, model_name,
 			input_price_tokens, output_price_tokens, status,
@@ -603,6 +611,28 @@ func (s *Service) createTransaction(ctx context.Context, consumerID uuid.UUID, p
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating transaction: %w", err)
+	}
+
+	// Store initial pricing for all selected providers
+	for rank, provider := range providers {
+		_, err = dbTx.ExecContext(ctx,
+			`INSERT INTO transaction_provider_prices (
+				transaction_id, provider_id, model_name,
+				input_price_tokens, output_price_tokens,
+				provider_rank
+			) VALUES ($1, $2, $3, $4, $5, $6)`,
+			tx.ID, provider.ProviderID, tx.ModelName,
+			provider.InputPriceTokens, provider.OutputPriceTokens,
+			rank+1,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error storing provider pricing: %w", err)
+		}
+	}
+
+	// Commit the transaction
+	if err = dbTx.Commit(); err != nil {
+		return nil, fmt.Errorf("error committing transaction: %w", err)
 	}
 
 	return tx, nil
@@ -754,17 +784,15 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 	totalInputTokens := int(usage["prompt_tokens"].(float64))
 	totalOutputTokens := int(usage["completion_tokens"].(float64))
 
-	// Update transaction with completion details and the successful provider's information
+	// Update transaction with completion details
 	query := `
 		UPDATE transactions 
 		SET total_input_tokens = $1,
 			total_output_tokens = $2,
 			latency = $3,
 			status = 'payment',
-			provider_id = $4,           -- Update to successful provider
-			input_price_tokens = $5,    -- Update to successful provider's pricing
-			output_price_tokens = $6    -- Update to successful provider's pricing
-		WHERE id = $7
+			provider_id = $4
+		WHERE id = $5
 		RETURNING id`
 
 	var transactionID uuid.UUID
@@ -772,9 +800,7 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		totalInputTokens,
 		totalOutputTokens,
 		latency,
-		provider.ProviderID,        // Use successful provider's ID
-		provider.InputPriceTokens,  // Use successful provider's pricing
-		provider.OutputPriceTokens, // Use successful provider's pricing
+		provider.ProviderID,
 		tx.ID,
 	).Scan(&transactionID)
 
@@ -793,8 +819,8 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		ModelName:         tx.ModelName,
 		TotalInputTokens:  totalInputTokens,
 		TotalOutputTokens: totalOutputTokens,
-		InputPriceTokens:  provider.InputPriceTokens,  // Use successful provider's pricing
-		OutputPriceTokens: provider.OutputPriceTokens, // Use successful provider's pricing
+		InputPriceTokens:  tx.InputPriceTokens,  // Use original transaction prices
+		OutputPriceTokens: tx.OutputPriceTokens, // Use original transaction prices
 		Latency:           latency,
 	}
 
