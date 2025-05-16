@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -86,8 +87,17 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 
 	// Read response body
 	decodeStartTime := time.Now()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Log or inspect the raw response body
+	slog.InfoContext(ctx, "Raw response body", "body", string(respBody))
+
+	// Decode the response body
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 	decodeTime := time.Since(decodeStartTime).Milliseconds()
