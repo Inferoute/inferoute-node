@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"sort"
 	"time"
 
@@ -732,43 +731,6 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 		// Send request to provider communication service
 		commStartTime := time.Now()
-
-		if req.Stream {
-			s.logger.Info("Streaming request detected, using streaming function")
-
-			// Make streaming request
-			resp, err := common.MakeInternalRequestStream(
-				ctx,
-				"POST", // Adjust method as needed
-				common.ProviderCommunicationService,
-				"/api/provider-comms/stream",
-				req,
-			)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to make streaming request: %w", err)
-			}
-			defer resp.Body.Close()
-
-			// Process the streaming response
-			var fullResponse []byte
-			buffer := make([]byte, 1024) // Adjust buffer size as needed
-			for {
-				n, err := resp.Body.Read(buffer)
-				if n > 0 {
-					fullResponse = append(fullResponse, buffer[:n]...)
-				}
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					return nil, nil, fmt.Errorf("error reading streaming response: %w", err)
-				}
-			}
-
-			// Return the full response
-			return fullResponse, &provider, nil
-		}
-
 		response, err := common.MakeInternalRequest(
 			ctx,
 			"POST",
