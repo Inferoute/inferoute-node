@@ -740,11 +740,17 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 				ctx,
 				"POST",
 				common.ProviderCommunicationService,
-				"/api/provider-comms/stream",
+				"/api/provider-comms/send_requests", // Use the same endpoint as non-streaming
 				providerReq,
 			)
 			if err != nil {
+				lastErr = err // Store the error for reporting
 				s.logger.Error("Failed to make streaming request: %v", err)
+
+				// Log that we're trying the next provider if there are more
+				if i < len(providers)-1 {
+					s.logger.Info("Trying next provider (%d/%d remaining)", len(providers)-i-1, len(providers))
+				}
 				continue
 			}
 

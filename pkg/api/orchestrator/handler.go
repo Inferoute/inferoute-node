@@ -119,6 +119,32 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 	if err != nil {
 		h.logger.Error("Failed to process request: %v", err)
 
+		// For streaming requests, we need to send the error in SSE format
+		if req.Stream {
+			c.Response().Header().Set("Content-Type", "text/event-stream")
+			c.Response().Header().Set("Cache-Control", "no-cache")
+			c.Response().Header().Set("Connection", "keep-alive")
+
+			errorEvent := map[string]interface{}{
+				"error": map[string]interface{}{
+					"message": err.Error(),
+					"type":    "inferoute_error",
+					"code":    http.StatusInternalServerError,
+				},
+			}
+
+			// Convert to SSE format
+			jsonData, _ := json.Marshal(errorEvent)
+			errorMsg := fmt.Sprintf("data: %s\n\n", string(jsonData))
+
+			_, writeErr := c.Response().Write([]byte(errorMsg))
+			if writeErr != nil {
+				h.logger.Error("Error writing error event: %v", writeErr)
+			}
+			c.Response().Flush()
+			return nil
+		}
+
 		// Check if this is an AppError
 		if appErr, ok := common.IsAppError(err); ok {
 			// Return the AppError with its status code and message
