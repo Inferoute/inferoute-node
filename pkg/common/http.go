@@ -203,10 +203,8 @@ func MakeInternalRequestStream(ctx context.Context, method string, endpoint Serv
 		return nil, fmt.Errorf("internal key missing from context")
 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	// Create HTTP client without timeout for streaming
+	client := &http.Client{}
 
 	// Convert body to JSON if it exists
 	var bodyReader io.Reader
@@ -230,6 +228,7 @@ func MakeInternalRequestStream(ctx context.Context, method string, endpoint Serv
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Key", internalKey)
+	req.Header.Set("Accept", "text/event-stream") // Add this for SSE support
 
 	// Make request
 	resp, err := client.Do(req)
@@ -237,6 +236,12 @@ func MakeInternalRequestStream(ctx context.Context, method string, endpoint Serv
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 
-	// Return the response for streaming
+	// Check response status before returning
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
 	return resp, nil
 }

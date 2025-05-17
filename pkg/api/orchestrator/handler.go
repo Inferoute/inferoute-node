@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -140,6 +141,46 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 		})
 	}
 
+	// Handle streaming response
+	if req.Stream {
+		// Set streaming headers
+		c.Response().Header().Set("Content-Type", "text/event-stream")
+		c.Response().Header().Set("Cache-Control", "no-cache")
+		c.Response().Header().Set("Connection", "keep-alive")
+		c.Response().Header().Set("Transfer-Encoding", "chunked")
+
+		// Type assert response to io.ReadCloser
+		responseBody, ok := response.(io.ReadCloser)
+		if !ok {
+			h.logger.Error("Invalid streaming response type: %T", response)
+			return echo.NewHTTPError(http.StatusInternalServerError, "Invalid streaming response")
+		}
+		defer responseBody.Close()
+
+		// Stream the response
+		buffer := make([]byte, 1024)
+		for {
+			n, err := responseBody.Read(buffer)
+			if n > 0 {
+				_, writeErr := c.Response().Write(buffer[:n])
+				if writeErr != nil {
+					h.logger.Error("Error writing to response: %v", writeErr)
+					return writeErr
+				}
+				c.Response().Flush()
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				h.logger.Error("Error reading from response: %v", err)
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Handle non-streaming response
 	// Extract response_data from provider response
 	if responseMap, ok := response.(map[string]interface{}); ok {
 		if responseData, ok := responseMap["response_data"]; ok {
