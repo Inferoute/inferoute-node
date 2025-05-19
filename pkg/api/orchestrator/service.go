@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"time"
 
@@ -794,7 +795,94 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 // finalizeTransaction updates the transaction with completion details
 func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord, response interface{}, latency int64, provider *ProviderInfo) error {
-	// Extract response data from interface
+	// For streaming responses, we need to read the final message with usage info
+	if streamReader, ok := response.(io.ReadCloser); ok {
+		// Read the entire stream to get the final message
+		body, err := io.ReadAll(streamReader)
+		if err != nil {
+			s.logger.Error("Failed to read streaming response: %v", err)
+			return fmt.Errorf("failed to read streaming response: %w", err)
+		}
+
+		// Parse the response to get usage info
+		var responseMap map[string]interface{}
+		if err := json.Unmarshal(body, &responseMap); err != nil {
+			s.logger.Error("Failed to parse streaming response: %v", err)
+			return fmt.Errorf("failed to parse streaming response: %w", err)
+		}
+
+		// Extract usage information
+		usage, ok := responseMap["usage"].(map[string]interface{})
+		if !ok {
+			s.logger.Error("DEBUG: usage is not a map in streaming response: %T", responseMap["usage"])
+			return fmt.Errorf("missing usage information in streaming response")
+		}
+
+		// Extract token counts
+		totalInputTokens := int(usage["prompt_tokens"].(float64))
+		totalOutputTokens := int(usage["completion_tokens"].(float64))
+
+		// Update transaction with completion details
+		query := `
+			UPDATE transactions 
+			SET total_input_tokens = $1,
+				total_output_tokens = $2,
+				latency = $3,
+				status = 'payment',
+				provider_id = $4
+			WHERE id = $5
+			RETURNING id`
+
+		var transactionID uuid.UUID
+		err = s.db.QueryRowContext(ctx, query,
+			totalInputTokens,
+			totalOutputTokens,
+			latency,
+			provider.ProviderID,
+			tx.ID,
+		).Scan(&transactionID)
+
+		if err != nil {
+			s.logger.Error("Failed to update transaction with successful provider info: %v", err)
+			return fmt.Errorf("failed to update transaction: %w", err)
+		}
+
+		s.logger.Info("Updated transaction %s with successful provider %s for streaming request", tx.ID, provider.ProviderID)
+
+		// Create payment message with the successful provider's information
+		paymentMsg := PaymentMessage{
+			ConsumerID:        tx.ConsumerID,
+			ProviderID:        provider.ProviderID,
+			HMAC:              tx.HMAC,
+			ModelName:         tx.ModelName,
+			TotalInputTokens:  totalInputTokens,
+			TotalOutputTokens: totalOutputTokens,
+			InputPriceTokens:  tx.InputPriceTokens,
+			OutputPriceTokens: tx.OutputPriceTokens,
+			Latency:           latency,
+		}
+
+		// Convert to JSON
+		msgBytes, err := json.Marshal(paymentMsg)
+		if err != nil {
+			return fmt.Errorf("failed to marshal payment message: %w", err)
+		}
+
+		// Publish to RabbitMQ
+		err = s.rmq.Publish(
+			"transactions_exchange",
+			"transactions",
+			msgBytes,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to publish payment message: %w", err)
+		}
+
+		s.logger.Info("Published payment message for transaction %s with successful provider %s", tx.ID, provider.ProviderID)
+		return nil
+	}
+
+	// For non-streaming responses, extract usage info and update accordingly
 	responseMap, ok := response.(map[string]interface{})
 	if !ok {
 		s.logger.Error("DEBUG: Response is not a map: %T", response)
@@ -847,8 +935,8 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		ModelName:         tx.ModelName,
 		TotalInputTokens:  totalInputTokens,
 		TotalOutputTokens: totalOutputTokens,
-		InputPriceTokens:  tx.InputPriceTokens,  // Use original transaction prices
-		OutputPriceTokens: tx.OutputPriceTokens, // Use original transaction prices
+		InputPriceTokens:  tx.InputPriceTokens,
+		OutputPriceTokens: tx.OutputPriceTokens,
 		Latency:           latency,
 	}
 
@@ -860,8 +948,8 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 
 	// Publish to RabbitMQ
 	err = s.rmq.Publish(
-		"transactions_exchange", // exchange
-		"transactions",          // routing key
+		"transactions_exchange",
+		"transactions",
 		msgBytes,
 	)
 	if err != nil {
