@@ -755,12 +755,11 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 				continue
 			}
 
-			// For streaming requests, return both the response body and a stream count of 0
-			// The actual count will be determined by the provider communication service
-			return map[string]interface{}{
-				"stream": resp.Body,
-				"count":  0, // Initial count, will be updated by provider communication service
-			}, &provider, nil
+			// For streaming requests, we'll return the response directly
+			// The handler will be responsible for streaming the response to the client
+			// Store the stream count in the context for finalizeTransaction to use
+			ctx = context.WithValue(ctx, "stream_count", 0) // Initial count
+			return resp.Body, &provider, nil
 		}
 
 		response, err := common.MakeInternalRequest(
@@ -840,19 +839,12 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 
 		totalInputTokens = int(tokenizerResp["input_token_count"].(float64))
 
-		// For streaming, get the stream count from the response map
-		responseMap, ok := response.(map[string]interface{})
-		if !ok {
-			s.logger.Error("DEBUG: Streaming response is not a map: %T", response)
-			return fmt.Errorf("invalid streaming response format")
-		}
-
-		// Get the stream count from the response
-		if count, ok := responseMap["count"].(float64); ok {
-			totalOutputTokens = int(count)
+		// For streaming, get the stream count from the context
+		if count, ok := ctx.Value("stream_count").(int); ok {
+			totalOutputTokens = count
 		} else {
-			s.logger.Error("DEBUG: Stream count not found in response")
-			return fmt.Errorf("stream count not found in response")
+			s.logger.Error("DEBUG: Stream count not found in context")
+			return fmt.Errorf("stream count not found in context")
 		}
 	} else {
 		// For non-streaming requests, handle as before
