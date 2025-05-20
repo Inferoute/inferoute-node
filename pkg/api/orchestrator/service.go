@@ -820,7 +820,14 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 
 	// Handle streaming and non-streaming responses differently
 	if originalReq.Stream {
-		// For streaming requests, we only need to tokenize the input
+		// For streaming requests, get stream count from context
+		streamCount, ok := ctx.Value("stream_count").(int)
+		if !ok {
+			s.logger.Error("DEBUG: Stream count not found in context")
+			return fmt.Errorf("stream count not found in context")
+		}
+
+		// Call tokenizer service for input text only
 		tokenizerReq := map[string]interface{}{
 			"input_text": inputText,
 		}
@@ -833,19 +840,12 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 			tokenizerReq,
 		)
 		if err != nil {
-			s.logger.Error("Failed to get input token count from tokenizer: %v", err)
-			return fmt.Errorf("failed to get input token count: %w", err)
+			s.logger.Error("Failed to get token counts from tokenizer: %v", err)
+			return fmt.Errorf("failed to get token counts: %w", err)
 		}
 
 		totalInputTokens = int(tokenizerResp["input_token_count"].(float64))
-
-		// For streaming, get the stream count from the context
-		if count, ok := ctx.Value("stream_count").(int); ok {
-			totalOutputTokens = count
-		} else {
-			s.logger.Error("DEBUG: Stream count not found in context")
-			return fmt.Errorf("stream count not found in context")
-		}
+		totalOutputTokens = streamCount // Use stream count as output tokens
 	} else {
 		// For non-streaming requests, handle as before
 		responseMap, ok := response.(map[string]interface{})

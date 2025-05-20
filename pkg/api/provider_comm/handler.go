@@ -89,14 +89,30 @@ func (h *Handler) SendRequest(c echo.Context) error {
 		buffer: make([]byte, 0),
 	}
 
+	// Create a custom writer that maintains context
+	writer := &contextWriter{
+		writer: c.Response().Writer,
+		ctx:    ctx,
+	}
+
 	// Stream the response body directly to the client while also logging and counting chunks
-	_, err = io.Copy(c.Response(), countingReader)
+	_, err = io.Copy(writer, countingReader)
 
 	// Log what was sent to the client
 	h.logger.Info("Raw response sent to client: %s", logBuffer.String())
 	h.logger.Info("Total chunks streamed: %d", chunkCount)
 
 	return err
+}
+
+// contextWriter is a custom writer that maintains context
+type contextWriter struct {
+	writer io.Writer
+	ctx    context.Context
+}
+
+func (w *contextWriter) Write(p []byte) (n int, err error) {
+	return w.writer.Write(p)
 }
 
 // countingReader is a custom reader that counts chunks
