@@ -57,7 +57,10 @@ func (h *Handler) SendRequest(c echo.Context) error {
 		return common.NewBadRequestError("validation failed")
 	}
 
-	responseBody, err := h.service.SendRequest(c.Request().Context(), req)
+	// Create a new context with a stream count value
+	ctx := context.WithValue(c.Request().Context(), "stream_count", 0)
+
+	responseBody, err := h.service.SendRequest(ctx, req)
 	if err != nil {
 		return err // Service errors are already properly formatted
 	}
@@ -79,8 +82,8 @@ func (h *Handler) SendRequest(c echo.Context) error {
 		onChunk: func() {
 			chunkCount++
 			// Update the stream count in the context
-			ctx := c.Request().Context()
 			ctx = context.WithValue(ctx, "stream_count", chunkCount)
+			// Update the request context
 			c.SetRequest(c.Request().WithContext(ctx))
 		},
 		buffer: make([]byte, 0),
