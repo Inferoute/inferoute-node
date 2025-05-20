@@ -795,13 +795,6 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 // finalizeTransaction updates the transaction with completion details
 func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord, response interface{}, latency int64, provider *ProviderInfo) error {
-	// Extract response data from interface
-	responseMap, ok := response.(map[string]interface{})
-	if !ok {
-		s.logger.Error("DEBUG: Response is not a map: %T", response)
-		return fmt.Errorf("invalid response format")
-	}
-
 	// Get the original request from context
 	originalReq, ok := ctx.Value("original_request").(*OpenAIRequest)
 	if !ok {
@@ -821,40 +814,62 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		inputText = originalReq.Prompt
 	}
 
-	// Extract output text from response
-	var outputText string
-	if choices, ok := responseMap["choices"].([]interface{}); ok && len(choices) > 0 {
-		if choice, ok := choices[0].(map[string]interface{}); ok {
-			if message, ok := choice["message"].(map[string]interface{}); ok {
-				if content, ok := message["content"].(string); ok {
-					outputText = content
+	// Handle streaming vs non-streaming responses
+	var totalInputTokens, totalOutputTokens int
+	var err error
+
+	if originalReq.Stream {
+		// For streaming responses, we need to get the final response from the provider
+		// This is already handled by the provider-communication service which collects
+		// the complete response in its log buffer
+		// We'll use a default token count for now since we can't get the actual count
+		// TODO: Implement proper token counting for streaming responses
+		totalInputTokens = 1  // Placeholder
+		totalOutputTokens = 1 // Placeholder
+		s.logger.Info("Using placeholder token counts for streaming response")
+	} else {
+		// For non-streaming responses, extract the response data
+		responseMap, ok := response.(map[string]interface{})
+		if !ok {
+			s.logger.Error("DEBUG: Response is not a map: %T", response)
+			return fmt.Errorf("invalid response format")
+		}
+
+		// Extract output text from response
+		var outputText string
+		if choices, ok := responseMap["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if message, ok := choice["message"].(map[string]interface{}); ok {
+					if content, ok := message["content"].(string); ok {
+						outputText = content
+					}
+				} else if text, ok := choice["text"].(string); ok {
+					outputText = text
 				}
-			} else if text, ok := choice["text"].(string); ok {
-				outputText = text
 			}
 		}
-	}
 
-	// Call tokenizer service
-	tokenizerReq := map[string]interface{}{
-		"input_text":  inputText,
-		"output_text": outputText,
-	}
+		// Call tokenizer service
+		tokenizerReq := map[string]interface{}{
+			"input_text":  inputText,
+			"output_text": outputText,
+		}
 
-	tokenizerResp, err := common.MakeInternalRequest(
-		ctx,
-		"POST",
-		common.TokenizerService,
-		"/api/tokenize",
-		tokenizerReq,
-	)
-	if err != nil {
-		s.logger.Error("Failed to get token counts from tokenizer: %v", err)
-		return fmt.Errorf("failed to get token counts: %w", err)
-	}
+		tokenizerResp, err := common.MakeInternalRequest(
+			ctx,
+			"POST",
+			common.TokenizerService,
+			"/api/tokenize",
+			tokenizerReq,
+		)
+		if err != nil {
+			s.logger.Error("Failed to get token counts from tokenizer: %v", err)
+			return fmt.Errorf("failed to get token counts: %w", err)
+		}
 
-	totalInputTokens := int(tokenizerResp["input_token_count"].(float64))
-	totalOutputTokens := int(tokenizerResp["output_token_count"].(float64))
+		totalInputTokens = int(tokenizerResp["input_token_count"].(float64))
+		totalOutputTokens = int(tokenizerResp["output_token_count"].(float64))
+	}
 
 	// Update transaction with completion details
 	query := `
