@@ -834,12 +834,18 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 
 	// Handle streaming response
 	if originalReq.Stream {
+		s.logger.Info("DEBUG: Processing streaming response")
+
 		// For streaming responses, we need to get the output text from the context
 		outputText, ok := ctx.Value("stream_output_text").(string)
 		if !ok {
 			s.logger.Error("DEBUG: stream output text not found in context")
+			s.logger.Error("DEBUG: Context keys: %v", ctx.Value("stream_output_text"))
+			s.logger.Error("DEBUG: Context type: %T", ctx.Value("stream_output_text"))
 			return fmt.Errorf("missing stream output text in context")
 		}
+
+		s.logger.Info("DEBUG: Found stream output text, length: %d", len(outputText))
 
 		// Call tokenizer service
 		tokenizerReq := map[string]interface{}{
