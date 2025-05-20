@@ -175,7 +175,7 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 		c.Response().Header().Set("Connection", "keep-alive")
 		c.Response().Header().Set("Transfer-Encoding", "chunked")
 
-		// Get response body
+		// Type assert response to io.ReadCloser
 		responseBody, ok := response.(io.ReadCloser)
 		if !ok {
 			h.logger.Error("Invalid streaming response type: %T", response)
@@ -188,7 +188,6 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 		for {
 			n, err := responseBody.Read(buffer)
 			if n > 0 {
-				// Write to response
 				_, writeErr := c.Response().Write(buffer[:n])
 				if writeErr != nil {
 					h.logger.Error("Error writing to response: %v", writeErr)
@@ -197,7 +196,6 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 				c.Response().Flush()
 			}
 			if err == io.EOF {
-				h.logger.Info("DEBUG: Reached end of stream")
 				break
 			}
 			if err != nil {
@@ -205,7 +203,6 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 				return err
 			}
 		}
-
 		return nil
 	}
 

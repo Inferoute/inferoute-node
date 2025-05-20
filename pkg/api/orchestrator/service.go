@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -270,62 +268,6 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	totalTime := time.Since(totalStartTime).Milliseconds()
 	s.logger.Info("Total orchestration time: %dms (Provider request: %dms, Overhead: %dms)",
 		totalTime, providerRequestTime, totalTime-providerRequestTime)
-
-	// For streaming requests, we need to process the stream first
-	if req.Stream {
-		responseBody, ok := response.(io.ReadCloser)
-		if !ok {
-			return nil, fmt.Errorf("invalid streaming response type: %T", response)
-		}
-		defer responseBody.Close()
-
-		// Create a buffer to accumulate the output text and count chunks
-		var outputTextBuilder strings.Builder
-		var chunkCount int
-		buffer := make([]byte, 1024)
-
-		// Process the stream
-		for {
-			n, err := responseBody.Read(buffer)
-			if n > 0 {
-				// Parse the chunk to extract content
-				chunkStr := string(buffer[:n])
-				if strings.HasPrefix(chunkStr, "data: ") {
-					// Extract JSON part
-					jsonStr := strings.TrimPrefix(chunkStr, "data: ")
-					var chunk map[string]interface{}
-					if err := json.Unmarshal([]byte(jsonStr), &chunk); err == nil {
-						if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
-							if choice, ok := choices[0].(map[string]interface{}); ok {
-								if delta, ok := choice["delta"].(map[string]interface{}); ok {
-									if content, ok := delta["content"].(string); ok {
-										outputTextBuilder.WriteString(content)
-										chunkCount++
-										s.logger.Info("DEBUG: Accumulated chunk %d", chunkCount)
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-			if err == io.EOF {
-				s.logger.Info("DEBUG: Reached end of stream, total chunks: %d", chunkCount)
-				break
-			}
-			if err != nil {
-				return nil, fmt.Errorf("error reading from response: %w", err)
-			}
-		}
-
-		// Store the chunk count in context for transaction finalization
-		ctx = context.WithValue(ctx, "stream_output_tokens", chunkCount)
-		ctx = context.WithValue(ctx, "stream_output_text", outputTextBuilder.String())
-
-		// Create a new response body with the accumulated text
-		newResponse := io.NopCloser(strings.NewReader(outputTextBuilder.String()))
-		return newResponse, nil
-	}
 
 	return response, nil
 }
@@ -872,20 +814,57 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		inputText = originalReq.Prompt
 	}
 
-	// Handle streaming response
+	var totalInputTokens, totalOutputTokens int
+
+	// Handle streaming and non-streaming responses differently
 	if originalReq.Stream {
-		s.logger.Info("DEBUG: Processing streaming response")
-
-		// For streaming responses, we use the chunk count as token count
-		outputTokens, ok := ctx.Value("stream_output_tokens").(int)
-		if !ok {
-			s.logger.Error("DEBUG: stream output tokens not found in context")
-			return fmt.Errorf("missing stream output tokens in context")
-		}
-
-		// Get input tokens from tokenizer
+		// For streaming requests, we only need to tokenize the input
 		tokenizerReq := map[string]interface{}{
 			"input_text": inputText,
+		}
+
+		tokenizerResp, err := common.MakeInternalRequest(
+			ctx,
+			"POST",
+			common.TokenizerService,
+			"/api/tokenize",
+			tokenizerReq,
+		)
+		if err != nil {
+			s.logger.Error("Failed to get input token count from tokenizer: %v", err)
+			return fmt.Errorf("failed to get input token count: %w", err)
+		}
+
+		totalInputTokens = int(tokenizerResp["input_token_count"].(float64))
+		// For streaming, output tokens are counted by the number of stream chunks
+		// This is handled by the provider communication service and passed as totalOutputTokens
+		totalOutputTokens = int(response.(float64)) // Cast the response to float64 which contains the stream count
+	} else {
+		// For non-streaming requests, handle as before
+		responseMap, ok := response.(map[string]interface{})
+		if !ok {
+			s.logger.Error("DEBUG: Response is not a map: %T", response)
+			return fmt.Errorf("invalid response format")
+		}
+
+		// Extract output text from response
+		var outputText string
+		if choices, ok := responseMap["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if message, ok := choice["message"].(map[string]interface{}); ok {
+					if content, ok := message["content"].(string); ok {
+						outputText = content
+					}
+				} else if text, ok := choice["text"].(string); ok {
+					outputText = text
+				}
+			}
+		}
+
+		// Call tokenizer service for both input and output
+		tokenizerReq := map[string]interface{}{
+			"input_text":  inputText,
+			"output_text": outputText,
 		}
 
 		tokenizerResp, err := common.MakeInternalRequest(
@@ -900,110 +879,9 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 			return fmt.Errorf("failed to get token counts: %w", err)
 		}
 
-		totalInputTokens := int(tokenizerResp["input_token_count"].(float64))
-		totalOutputTokens := outputTokens
-
-		// Update transaction with completion details
-		query := `
-			UPDATE transactions 
-			SET total_input_tokens = $1,
-				total_output_tokens = $2,
-				latency = $3,
-				status = 'payment',
-				provider_id = $4
-			WHERE id = $5
-			RETURNING id`
-
-		var transactionID uuid.UUID
-		err = s.db.QueryRowContext(ctx, query,
-			totalInputTokens,
-			totalOutputTokens,
-			latency,
-			provider.ProviderID,
-			tx.ID,
-		).Scan(&transactionID)
-
-		if err != nil {
-			s.logger.Error("Failed to update transaction with successful provider info: %v", err)
-			return fmt.Errorf("failed to update transaction: %w", err)
-		}
-
-		s.logger.Info("Updated transaction %s with successful provider %s", tx.ID, provider.ProviderID)
-
-		// Create payment message with the successful provider's information
-		paymentMsg := PaymentMessage{
-			ConsumerID:        tx.ConsumerID,
-			ProviderID:        provider.ProviderID,
-			HMAC:              tx.HMAC,
-			ModelName:         tx.ModelName,
-			TotalInputTokens:  totalInputTokens,
-			TotalOutputTokens: totalOutputTokens,
-			InputPriceTokens:  tx.InputPriceTokens,
-			OutputPriceTokens: tx.OutputPriceTokens,
-			Latency:           latency,
-		}
-
-		// Convert to JSON
-		msgBytes, err := json.Marshal(paymentMsg)
-		if err != nil {
-			return fmt.Errorf("failed to marshal payment message: %w", err)
-		}
-
-		// Publish to RabbitMQ
-		err = s.rmq.Publish(
-			"transactions_exchange",
-			"transactions",
-			msgBytes,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to publish payment message: %w", err)
-		}
-
-		s.logger.Info("Published payment message for transaction %s with successful provider %s", tx.ID, provider.ProviderID)
-		return nil
+		totalInputTokens = int(tokenizerResp["input_token_count"].(float64))
+		totalOutputTokens = int(tokenizerResp["output_token_count"].(float64))
 	}
-
-	// Handle non-streaming response
-	responseMap, ok := response.(map[string]interface{})
-	if !ok {
-		s.logger.Error("DEBUG: Response is not a map: %T", response)
-		return fmt.Errorf("invalid response format")
-	}
-
-	// Extract output text from response
-	var outputText string
-	if choices, ok := responseMap["choices"].([]interface{}); ok && len(choices) > 0 {
-		if choice, ok := choices[0].(map[string]interface{}); ok {
-			if message, ok := choice["message"].(map[string]interface{}); ok {
-				if content, ok := message["content"].(string); ok {
-					outputText = content
-				}
-			} else if text, ok := choice["text"].(string); ok {
-				outputText = text
-			}
-		}
-	}
-
-	// Call tokenizer service
-	tokenizerReq := map[string]interface{}{
-		"input_text":  inputText,
-		"output_text": outputText,
-	}
-
-	tokenizerResp, err := common.MakeInternalRequest(
-		ctx,
-		"POST",
-		common.TokenizerService,
-		"/api/tokenize",
-		tokenizerReq,
-	)
-	if err != nil {
-		s.logger.Error("Failed to get token counts from tokenizer: %v", err)
-		return fmt.Errorf("failed to get token counts: %w", err)
-	}
-
-	totalInputTokens := int(tokenizerResp["input_token_count"].(float64))
-	totalOutputTokens := int(tokenizerResp["output_token_count"].(float64))
 
 	// Update transaction with completion details
 	query := `
@@ -1017,7 +895,7 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		RETURNING id`
 
 	var transactionID uuid.UUID
-	err = s.db.QueryRowContext(ctx, query,
+	err := s.db.QueryRowContext(ctx, query,
 		totalInputTokens,
 		totalOutputTokens,
 		latency,
@@ -1040,8 +918,8 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		ModelName:         tx.ModelName,
 		TotalInputTokens:  totalInputTokens,
 		TotalOutputTokens: totalOutputTokens,
-		InputPriceTokens:  tx.InputPriceTokens,
-		OutputPriceTokens: tx.OutputPriceTokens,
+		InputPriceTokens:  tx.InputPriceTokens,  // Use original transaction prices
+		OutputPriceTokens: tx.OutputPriceTokens, // Use original transaction prices
 		Latency:           latency,
 	}
 
@@ -1053,8 +931,8 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 
 	// Publish to RabbitMQ
 	err = s.rmq.Publish(
-		"transactions_exchange",
-		"transactions",
+		"transactions_exchange", // exchange
+		"transactions",          // routing key
 		msgBytes,
 	)
 	if err != nil {
