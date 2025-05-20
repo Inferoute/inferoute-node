@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"time"
 
@@ -268,6 +269,23 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	totalTime := time.Since(totalStartTime).Milliseconds()
 	s.logger.Info("Total orchestration time: %dms (Provider request: %dms, Overhead: %dms)",
 		totalTime, providerRequestTime, totalTime-providerRequestTime)
+
+	// For streaming requests, we need to wrap the response with the context
+	if req.Stream {
+		// Get the stream output text from context
+		if outputText, ok := ctx.Value("stream_output_text").(string); ok {
+			// Create a new context with the output text
+			newCtx := context.WithValue(ctx, "stream_output_text", outputText)
+			// Return a wrapper that includes both the response and context
+			return struct {
+				Response io.ReadCloser
+				Context  context.Context
+			}{
+				Response: response.(io.ReadCloser),
+				Context:  newCtx,
+			}, nil
+		}
+	}
 
 	return response, nil
 }

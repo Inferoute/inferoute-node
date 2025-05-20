@@ -175,11 +175,26 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 		c.Response().Header().Set("Connection", "keep-alive")
 		c.Response().Header().Set("Transfer-Encoding", "chunked")
 
-		// Type assert response to io.ReadCloser
-		responseBody, ok := response.(io.ReadCloser)
-		if !ok {
-			h.logger.Error("Invalid streaming response type: %T", response)
-			return echo.NewHTTPError(http.StatusInternalServerError, "Invalid streaming response")
+		// Handle wrapped response
+		var responseBody io.ReadCloser
+		var responseCtx context.Context
+
+		// Check if response is wrapped
+		if wrappedResp, ok := response.(struct {
+			Response io.ReadCloser
+			Context  context.Context
+		}); ok {
+			responseBody = wrappedResp.Response
+			responseCtx = wrappedResp.Context
+		} else {
+			// Fallback to direct response
+			var ok bool
+			responseBody, ok = response.(io.ReadCloser)
+			if !ok {
+				h.logger.Error("Invalid streaming response type: %T", response)
+				return echo.NewHTTPError(http.StatusInternalServerError, "Invalid streaming response")
+			}
+			responseCtx = c.Request().Context()
 		}
 		defer responseBody.Close()
 
@@ -234,7 +249,7 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 
 		// Store the accumulated output text in context
 		outputText := outputTextBuilder.String()
-		ctx := context.WithValue(c.Request().Context(), "stream_output_text", outputText)
+		ctx := context.WithValue(responseCtx, "stream_output_text", outputText)
 		c.SetRequest(c.Request().WithContext(ctx))
 
 		return nil
