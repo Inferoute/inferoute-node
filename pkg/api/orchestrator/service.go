@@ -272,6 +272,15 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 
 	// For streaming requests, we need to wrap the response with the context
 	if req.Stream {
+		// Get the wrapped response from context
+		if wrappedResp, ok := ctx.Value("wrapped_response").(struct {
+			Response io.ReadCloser
+			Context  context.Context
+		}); ok {
+			s.logger.Info("DEBUG: Found wrapped response in context")
+			return wrappedResp.Response, nil
+		}
+
 		// Get the stream output text from context
 		if outputText, ok := ctx.Value("stream_output_text").(string); ok {
 			s.logger.Info("DEBUG: Found stream output text in context, length: %d", len(outputText))

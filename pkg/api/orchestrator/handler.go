@@ -258,6 +258,18 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 		// Set the context in the request
 		c.SetRequest(c.Request().WithContext(newCtx))
 
+		// Create a new response body that includes the accumulated text
+		responseBody = io.NopCloser(strings.NewReader(outputText))
+
+		// Store the wrapped response in the context
+		c.Set("wrapped_response", struct {
+			Response io.ReadCloser
+			Context  context.Context
+		}{
+			Response: responseBody,
+			Context:  newCtx,
+		})
+
 		return nil
 	}
 
