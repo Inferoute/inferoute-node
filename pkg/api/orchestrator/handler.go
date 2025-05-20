@@ -183,17 +183,45 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 		}
 		defer responseBody.Close()
 
+		// Create a buffer to accumulate the output text
+		var outputTextBuilder strings.Builder
+		var lastChunk []byte
+
 		// Stream the response
 		buffer := make([]byte, 1024)
 		for {
 			n, err := responseBody.Read(buffer)
 			if n > 0 {
+				// Write to response
 				_, writeErr := c.Response().Write(buffer[:n])
 				if writeErr != nil {
 					h.logger.Error("Error writing to response: %v", writeErr)
 					return writeErr
 				}
 				c.Response().Flush()
+
+				// Store the last chunk for potential retry
+				lastChunk = make([]byte, n)
+				copy(lastChunk, buffer[:n])
+
+				// Parse the chunk to extract content
+				chunkStr := string(buffer[:n])
+				if strings.HasPrefix(chunkStr, "data: ") {
+					// Extract JSON part
+					jsonStr := strings.TrimPrefix(chunkStr, "data: ")
+					var chunk map[string]interface{}
+					if err := json.Unmarshal([]byte(jsonStr), &chunk); err == nil {
+						if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
+							if choice, ok := choices[0].(map[string]interface{}); ok {
+								if delta, ok := choice["delta"].(map[string]interface{}); ok {
+									if content, ok := delta["content"].(string); ok {
+										outputTextBuilder.WriteString(content)
+									}
+								}
+							}
+						}
+					}
+				}
 			}
 			if err == io.EOF {
 				break
@@ -203,6 +231,12 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 				return err
 			}
 		}
+
+		// Store the accumulated output text in context
+		outputText := outputTextBuilder.String()
+		ctx := context.WithValue(c.Request().Context(), "stream_output_text", outputText)
+		c.SetRequest(c.Request().WithContext(ctx))
+
 		return nil
 	}
 

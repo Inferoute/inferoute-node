@@ -795,13 +795,6 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 // finalizeTransaction updates the transaction with completion details
 func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord, response interface{}, latency int64, provider *ProviderInfo) error {
-	// Extract response data from interface
-	responseMap, ok := response.(map[string]interface{})
-	if !ok {
-		s.logger.Error("DEBUG: Response is not a map: %T", response)
-		return fmt.Errorf("invalid response format")
-	}
-
 	// Get the original request from context
 	originalReq, ok := ctx.Value("original_request").(*OpenAIRequest)
 	if !ok {
@@ -819,6 +812,103 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 	} else if originalReq.Prompt != "" {
 		// For completions, use the prompt
 		inputText = originalReq.Prompt
+	}
+
+	// Handle streaming response
+	if originalReq.Stream {
+		// For streaming responses, we need to get the output text from the context
+		outputText, ok := ctx.Value("stream_output_text").(string)
+		if !ok {
+			s.logger.Error("DEBUG: stream output text not found in context")
+			return fmt.Errorf("missing stream output text in context")
+		}
+
+		// Call tokenizer service
+		tokenizerReq := map[string]interface{}{
+			"input_text":  inputText,
+			"output_text": outputText,
+		}
+
+		tokenizerResp, err := common.MakeInternalRequest(
+			ctx,
+			"POST",
+			common.TokenizerService,
+			"/api/tokenize",
+			tokenizerReq,
+		)
+		if err != nil {
+			s.logger.Error("Failed to get token counts from tokenizer: %v", err)
+			return fmt.Errorf("failed to get token counts: %w", err)
+		}
+
+		totalInputTokens := int(tokenizerResp["input_token_count"].(float64))
+		totalOutputTokens := int(tokenizerResp["output_token_count"].(float64))
+
+		// Update transaction with completion details
+		query := `
+			UPDATE transactions 
+			SET total_input_tokens = $1,
+				total_output_tokens = $2,
+				latency = $3,
+				status = 'payment',
+				provider_id = $4
+			WHERE id = $5
+			RETURNING id`
+
+		var transactionID uuid.UUID
+		err = s.db.QueryRowContext(ctx, query,
+			totalInputTokens,
+			totalOutputTokens,
+			latency,
+			provider.ProviderID,
+			tx.ID,
+		).Scan(&transactionID)
+
+		if err != nil {
+			s.logger.Error("Failed to update transaction with successful provider info: %v", err)
+			return fmt.Errorf("failed to update transaction: %w", err)
+		}
+
+		s.logger.Info("Updated transaction %s with successful provider %s", tx.ID, provider.ProviderID)
+
+		// Create payment message with the successful provider's information
+		paymentMsg := PaymentMessage{
+			ConsumerID:        tx.ConsumerID,
+			ProviderID:        provider.ProviderID,
+			HMAC:              tx.HMAC,
+			ModelName:         tx.ModelName,
+			TotalInputTokens:  totalInputTokens,
+			TotalOutputTokens: totalOutputTokens,
+			InputPriceTokens:  tx.InputPriceTokens,
+			OutputPriceTokens: tx.OutputPriceTokens,
+			Latency:           latency,
+		}
+
+		// Convert to JSON
+		msgBytes, err := json.Marshal(paymentMsg)
+		if err != nil {
+			return fmt.Errorf("failed to marshal payment message: %w", err)
+		}
+
+		// Publish to RabbitMQ
+		err = s.rmq.Publish(
+			"transactions_exchange",
+			"transactions",
+			msgBytes,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to publish payment message: %w", err)
+		}
+
+		s.logger.Info("Published payment message for transaction %s with successful provider %s", tx.ID, provider.ProviderID)
+		return nil
+	}
+
+	// Handle non-streaming response
+	responseMap, ok := response.(map[string]interface{})
+	if !ok {
+		s.logger.Error("DEBUG: Response is not a map: %T", response)
+		return fmt.Errorf("invalid response format")
 	}
 
 	// Extract output text from response
@@ -891,8 +981,8 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		ModelName:         tx.ModelName,
 		TotalInputTokens:  totalInputTokens,
 		TotalOutputTokens: totalOutputTokens,
-		InputPriceTokens:  tx.InputPriceTokens,  // Use original transaction prices
-		OutputPriceTokens: tx.OutputPriceTokens, // Use original transaction prices
+		InputPriceTokens:  tx.InputPriceTokens,
+		OutputPriceTokens: tx.OutputPriceTokens,
 		Latency:           latency,
 	}
 
@@ -904,8 +994,8 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 
 	// Publish to RabbitMQ
 	err = s.rmq.Publish(
-		"transactions_exchange", // exchange
-		"transactions",          // routing key
+		"transactions_exchange",
+		"transactions",
 		msgBytes,
 	)
 	if err != nil {
