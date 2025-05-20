@@ -755,9 +755,12 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 				continue
 			}
 
-			// For streaming requests, we'll return the response directly
-			// The handler will be responsible for streaming the response to the client
-			return resp.Body, &provider, nil
+			// For streaming requests, return both the response body and a stream count of 0
+			// The actual count will be determined by the provider communication service
+			return map[string]interface{}{
+				"stream": resp.Body,
+				"count":  0, // Initial count, will be updated by provider communication service
+			}, &provider, nil
 		}
 
 		response, err := common.MakeInternalRequest(
@@ -836,9 +839,21 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		}
 
 		totalInputTokens = int(tokenizerResp["input_token_count"].(float64))
-		// For streaming, output tokens are counted by the number of stream chunks
-		// This is handled by the provider communication service and passed as totalOutputTokens
-		totalOutputTokens = int(response.(float64)) // Cast the response to float64 which contains the stream count
+
+		// For streaming, get the stream count from the response map
+		responseMap, ok := response.(map[string]interface{})
+		if !ok {
+			s.logger.Error("DEBUG: Streaming response is not a map: %T", response)
+			return fmt.Errorf("invalid streaming response format")
+		}
+
+		// Get the stream count from the response
+		if count, ok := responseMap["count"].(float64); ok {
+			totalOutputTokens = int(count)
+		} else {
+			s.logger.Error("DEBUG: Stream count not found in response")
+			return fmt.Errorf("stream count not found in response")
+		}
 	} else {
 		// For non-streaming requests, handle as before
 		responseMap, ok := response.(map[string]interface{})
