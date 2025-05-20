@@ -42,6 +42,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	// Add internal key to context
 	ctx = context.WithValue(ctx, "internal_key", s.internalAPIKey)
 	ctx = context.WithValue(ctx, "logger", s.logger)
+	ctx = context.WithValue(ctx, "original_request", req) // Store original request in context
 
 	// 0 Add max_tokens and temperature to context if they exist in the request
 	if req.MaxTokens > 0 {
@@ -801,16 +802,59 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		return fmt.Errorf("invalid response format")
 	}
 
-	// Extract usage information
-	usage, ok := responseMap["usage"].(map[string]interface{})
+	// Get the original request from context
+	originalReq, ok := ctx.Value("original_request").(*OpenAIRequest)
 	if !ok {
-		s.logger.Error("DEBUG: usage is not a map: %T", responseMap["usage"])
-		return fmt.Errorf("missing usage information in response")
+		s.logger.Error("DEBUG: original request not found in context")
+		return fmt.Errorf("missing original request in context")
 	}
 
-	// Extract token counts
-	totalInputTokens := int(usage["prompt_tokens"].(float64))
-	totalOutputTokens := int(usage["completion_tokens"].(float64))
+	// Extract input text from the original request
+	var inputText string
+	if len(originalReq.Messages) > 0 {
+		// For chat completions, concatenate all messages
+		for _, msg := range originalReq.Messages {
+			inputText += msg.GetContent() + "\n"
+		}
+	} else if originalReq.Prompt != "" {
+		// For completions, use the prompt
+		inputText = originalReq.Prompt
+	}
+
+	// Extract output text from response
+	var outputText string
+	if choices, ok := responseMap["choices"].([]interface{}); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]interface{}); ok {
+			if message, ok := choice["message"].(map[string]interface{}); ok {
+				if content, ok := message["content"].(string); ok {
+					outputText = content
+				}
+			} else if text, ok := choice["text"].(string); ok {
+				outputText = text
+			}
+		}
+	}
+
+	// Call tokenizer service
+	tokenizerReq := map[string]interface{}{
+		"input_text":  inputText,
+		"output_text": outputText,
+	}
+
+	tokenizerResp, err := common.MakeInternalRequest(
+		ctx,
+		"POST",
+		common.TokenizerService,
+		"/api/tokenize",
+		tokenizerReq,
+	)
+	if err != nil {
+		s.logger.Error("Failed to get token counts from tokenizer: %v", err)
+		return fmt.Errorf("failed to get token counts: %w", err)
+	}
+
+	totalInputTokens := int(tokenizerResp["input_token_count"].(float64))
+	totalOutputTokens := int(tokenizerResp["output_token_count"].(float64))
 
 	// Update transaction with completion details
 	query := `
@@ -824,7 +868,7 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		RETURNING id`
 
 	var transactionID uuid.UUID
-	err := s.db.QueryRowContext(ctx, query,
+	err = s.db.QueryRowContext(ctx, query,
 		totalInputTokens,
 		totalOutputTokens,
 		latency,

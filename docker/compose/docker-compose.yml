@@ -205,6 +205,26 @@ services:
       - "traefik.http.services.ai-applications.loadbalancer.server.port=8087"
     restart: unless-stopped
 
+  tokenizer:
+    build:
+      context: ../..
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: tokenizer
+        SERVICE_PORT: 8088
+    container_name: tokenizer
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8088
+    expose:
+      - "8088"
+    networks:
+      - inferoute-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.tokenizer.loadbalancer.server.port=8088"
+    restart: unless-stopped
+
   # CockroachDB container
 
   cockroachdb:

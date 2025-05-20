@@ -25,6 +25,7 @@ var (
 	ProviderCommunicationService = ServiceEndpoint{Host: "provider-communication", Port: 8083}
 	ProviderHealthService        = ServiceEndpoint{Host: "provider-health", Port: 8084}
 	ModelPricingService          = ServiceEndpoint{Host: "model-pricing", Port: 8085}
+	TokenizerService             = ServiceEndpoint{Host: "tokenizer", Port: 8088}
 )
 
 // MakeInternalRequest makes a request to another internal service
