@@ -81,7 +81,7 @@ func (h *Handler) SendRequest(c echo.Context) error {
 			// Update the stream count in the context
 			ctx := c.Request().Context()
 			ctx = context.WithValue(ctx, "stream_count", chunkCount)
-			c.Request().WithContext(ctx)
+			c.SetRequest(c.Request().WithContext(ctx))
 		},
 	}
 
@@ -104,7 +104,10 @@ type countingReader struct {
 func (r *countingReader) Read(p []byte) (n int, err error) {
 	n, err = r.reader.Read(p)
 	if n > 0 {
-		r.onChunk()
+		// Only count actual data chunks, not empty ones
+		if !bytes.Equal(p[:n], []byte("data: [DONE]\n\n")) {
+			r.onChunk()
+		}
 	}
 	return n, err
 }
