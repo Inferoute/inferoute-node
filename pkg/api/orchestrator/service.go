@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -270,33 +271,60 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	s.logger.Info("Total orchestration time: %dms (Provider request: %dms, Overhead: %dms)",
 		totalTime, providerRequestTime, totalTime-providerRequestTime)
 
-	// For streaming requests, we need to wrap the response with the context
+	// For streaming requests, we need to process the stream first
 	if req.Stream {
-		// Get the wrapped response from context
-		if wrappedResp, ok := ctx.Value("wrapped_response").(struct {
-			Response io.ReadCloser
-			Context  context.Context
-		}); ok {
-			s.logger.Info("DEBUG: Found wrapped response in context")
-			return wrappedResp.Response, nil
+		responseBody, ok := response.(io.ReadCloser)
+		if !ok {
+			return nil, fmt.Errorf("invalid streaming response type: %T", response)
+		}
+		defer responseBody.Close()
+
+		// Create a buffer to accumulate the output text and count chunks
+		var outputTextBuilder strings.Builder
+		var chunkCount int
+		buffer := make([]byte, 1024)
+
+		// Process the stream
+		for {
+			n, err := responseBody.Read(buffer)
+			if n > 0 {
+				// Parse the chunk to extract content
+				chunkStr := string(buffer[:n])
+				if strings.HasPrefix(chunkStr, "data: ") {
+					// Extract JSON part
+					jsonStr := strings.TrimPrefix(chunkStr, "data: ")
+					var chunk map[string]interface{}
+					if err := json.Unmarshal([]byte(jsonStr), &chunk); err == nil {
+						if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
+							if choice, ok := choices[0].(map[string]interface{}); ok {
+								if delta, ok := choice["delta"].(map[string]interface{}); ok {
+									if content, ok := delta["content"].(string); ok {
+										outputTextBuilder.WriteString(content)
+										chunkCount++
+										s.logger.Info("DEBUG: Accumulated chunk %d", chunkCount)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			if err == io.EOF {
+				s.logger.Info("DEBUG: Reached end of stream, total chunks: %d", chunkCount)
+				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("error reading from response: %w", err)
+			}
 		}
 
-		// Get the stream output text from context
-		if outputText, ok := ctx.Value("stream_output_text").(string); ok {
-			s.logger.Info("DEBUG: Found stream output text in context, length: %d", len(outputText))
-			// Create a new context with the output text
-			newCtx := context.WithValue(ctx, "stream_output_text", outputText)
-			// Return a wrapper that includes both the response and context
-			return struct {
-				Response io.ReadCloser
-				Context  context.Context
-			}{
-				Response: response.(io.ReadCloser),
-				Context:  newCtx,
-			}, nil
-		} else {
-			s.logger.Error("DEBUG: No stream output text found in context")
-		}
+		// Store the chunk count in context for transaction finalization
+		ctx = context.WithValue(ctx, "stream_output_tokens", chunkCount)
+		ctx = context.WithValue(ctx, "stream_output_text", outputTextBuilder.String())
+
+		// Create a new response body with the accumulated text
+		newResponse := io.NopCloser(strings.NewReader(outputTextBuilder.String()))
+		return newResponse, nil
 	}
 
 	return response, nil
@@ -848,21 +876,16 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 	if originalReq.Stream {
 		s.logger.Info("DEBUG: Processing streaming response")
 
-		// For streaming responses, we need to get the output text from the context
-		outputText, ok := ctx.Value("stream_output_text").(string)
+		// For streaming responses, we use the chunk count as token count
+		outputTokens, ok := ctx.Value("stream_output_tokens").(int)
 		if !ok {
-			s.logger.Error("DEBUG: stream output text not found in context")
-			s.logger.Error("DEBUG: Context keys: %v", ctx.Value("stream_output_text"))
-			s.logger.Error("DEBUG: Context type: %T", ctx.Value("stream_output_text"))
-			return fmt.Errorf("missing stream output text in context")
+			s.logger.Error("DEBUG: stream output tokens not found in context")
+			return fmt.Errorf("missing stream output tokens in context")
 		}
 
-		s.logger.Info("DEBUG: Found stream output text, length: %d", len(outputText))
-
-		// Call tokenizer service
+		// Get input tokens from tokenizer
 		tokenizerReq := map[string]interface{}{
-			"input_text":  inputText,
-			"output_text": outputText,
+			"input_text": inputText,
 		}
 
 		tokenizerResp, err := common.MakeInternalRequest(
@@ -878,7 +901,7 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		}
 
 		totalInputTokens := int(tokenizerResp["input_token_count"].(float64))
-		totalOutputTokens := int(tokenizerResp["output_token_count"].(float64))
+		totalOutputTokens := outputTokens
 
 		// Update transaction with completion details
 		query := `

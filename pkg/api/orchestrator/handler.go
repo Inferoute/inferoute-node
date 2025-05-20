@@ -175,31 +175,13 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 		c.Response().Header().Set("Connection", "keep-alive")
 		c.Response().Header().Set("Transfer-Encoding", "chunked")
 
-		// Handle wrapped response
-		var responseBody io.ReadCloser
-
-		// Check if response is wrapped
-		if wrappedResp, ok := response.(struct {
-			Response io.ReadCloser
-			Context  context.Context
-		}); ok {
-			h.logger.Info("DEBUG: Received wrapped response with context")
-			responseBody = wrappedResp.Response
-		} else {
-			// Fallback to direct response
-			var ok bool
-			responseBody, ok = response.(io.ReadCloser)
-			if !ok {
-				h.logger.Error("Invalid streaming response type: %T", response)
-				return echo.NewHTTPError(http.StatusInternalServerError, "Invalid streaming response")
-			}
-			h.logger.Info("DEBUG: Using direct response with request context")
+		// Get response body
+		responseBody, ok := response.(io.ReadCloser)
+		if !ok {
+			h.logger.Error("Invalid streaming response type: %T", response)
+			return echo.NewHTTPError(http.StatusInternalServerError, "Invalid streaming response")
 		}
 		defer responseBody.Close()
-
-		// Create a buffer to accumulate the output text
-		var outputTextBuilder strings.Builder
-		var lastChunk []byte
 
 		// Stream the response
 		buffer := make([]byte, 1024)
@@ -213,30 +195,6 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 					return writeErr
 				}
 				c.Response().Flush()
-
-				// Store the last chunk for potential retry
-				lastChunk = make([]byte, n)
-				copy(lastChunk, buffer[:n])
-
-				// Parse the chunk to extract content
-				chunkStr := string(buffer[:n])
-				if strings.HasPrefix(chunkStr, "data: ") {
-					// Extract JSON part
-					jsonStr := strings.TrimPrefix(chunkStr, "data: ")
-					var chunk map[string]interface{}
-					if err := json.Unmarshal([]byte(jsonStr), &chunk); err == nil {
-						if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
-							if choice, ok := choices[0].(map[string]interface{}); ok {
-								if delta, ok := choice["delta"].(map[string]interface{}); ok {
-									if content, ok := delta["content"].(string); ok {
-										outputTextBuilder.WriteString(content)
-										h.logger.Info("DEBUG: Accumulated content length: %d", outputTextBuilder.Len())
-									}
-								}
-							}
-						}
-					}
-				}
 			}
 			if err == io.EOF {
 				h.logger.Info("DEBUG: Reached end of stream")
@@ -247,28 +205,6 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 				return err
 			}
 		}
-
-		// Store the accumulated output text in context
-		outputText := outputTextBuilder.String()
-		h.logger.Info("DEBUG: Final accumulated text length: %d", len(outputText))
-
-		// Create a new context with the output text
-		newCtx := context.WithValue(c.Request().Context(), "stream_output_text", outputText)
-
-		// Set the context in the request
-		c.SetRequest(c.Request().WithContext(newCtx))
-
-		// Create a new response body that includes the accumulated text
-		responseBody = io.NopCloser(strings.NewReader(outputText))
-
-		// Store the wrapped response in the context
-		c.Set("wrapped_response", struct {
-			Response io.ReadCloser
-			Context  context.Context
-		}{
-			Response: responseBody,
-			Context:  newCtx,
-		})
 
 		return nil
 	}
