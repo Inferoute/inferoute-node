@@ -757,8 +757,6 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 			// For streaming requests, we'll return the response directly
 			// The handler will be responsible for streaming the response to the client
-			// Store the stream count in the context for finalizeTransaction to use
-			ctx = context.WithValue(ctx, "stream_count", 0) // Initial count
 			return resp.Body, &provider, nil
 		}
 
@@ -797,6 +795,13 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 // finalizeTransaction updates the transaction with completion details
 func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord, response interface{}, latency int64, provider *ProviderInfo) error {
+	// Extract response data from interface
+	responseMap, ok := response.(map[string]interface{})
+	if !ok {
+		s.logger.Error("DEBUG: Response is not a map: %T", response)
+		return fmt.Errorf("invalid response format")
+	}
+
 	// Get the original request from context
 	originalReq, ok := ctx.Value("original_request").(*OpenAIRequest)
 	if !ok {
@@ -816,79 +821,40 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		inputText = originalReq.Prompt
 	}
 
-	var totalInputTokens, totalOutputTokens int
-
-	// Handle streaming and non-streaming responses differently
-	if originalReq.Stream {
-		// For streaming requests, get stream count from context
-		streamCount, ok := ctx.Value("stream_count").(int)
-		if !ok {
-			s.logger.Error("DEBUG: Stream count not found in context")
-			return fmt.Errorf("stream count not found in context")
-		}
-
-		// Call tokenizer service for input text only
-		tokenizerReq := map[string]interface{}{
-			"input_text": inputText,
-		}
-
-		tokenizerResp, err := common.MakeInternalRequest(
-			ctx,
-			"POST",
-			common.TokenizerService,
-			"/api/tokenize",
-			tokenizerReq,
-		)
-		if err != nil {
-			s.logger.Error("Failed to get token counts from tokenizer: %v", err)
-			return fmt.Errorf("failed to get token counts: %w", err)
-		}
-
-		totalInputTokens = int(tokenizerResp["input_token_count"].(float64))
-		totalOutputTokens = streamCount // Use stream count as output tokens
-	} else {
-		// For non-streaming requests, handle as before
-		responseMap, ok := response.(map[string]interface{})
-		if !ok {
-			s.logger.Error("DEBUG: Response is not a map: %T", response)
-			return fmt.Errorf("invalid response format")
-		}
-
-		// Extract output text from response
-		var outputText string
-		if choices, ok := responseMap["choices"].([]interface{}); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]interface{}); ok {
-				if message, ok := choice["message"].(map[string]interface{}); ok {
-					if content, ok := message["content"].(string); ok {
-						outputText = content
-					}
-				} else if text, ok := choice["text"].(string); ok {
-					outputText = text
+	// Extract output text from response
+	var outputText string
+	if choices, ok := responseMap["choices"].([]interface{}); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]interface{}); ok {
+			if message, ok := choice["message"].(map[string]interface{}); ok {
+				if content, ok := message["content"].(string); ok {
+					outputText = content
 				}
+			} else if text, ok := choice["text"].(string); ok {
+				outputText = text
 			}
 		}
-
-		// Call tokenizer service for both input and output
-		tokenizerReq := map[string]interface{}{
-			"input_text":  inputText,
-			"output_text": outputText,
-		}
-
-		tokenizerResp, err := common.MakeInternalRequest(
-			ctx,
-			"POST",
-			common.TokenizerService,
-			"/api/tokenize",
-			tokenizerReq,
-		)
-		if err != nil {
-			s.logger.Error("Failed to get token counts from tokenizer: %v", err)
-			return fmt.Errorf("failed to get token counts: %w", err)
-		}
-
-		totalInputTokens = int(tokenizerResp["input_token_count"].(float64))
-		totalOutputTokens = int(tokenizerResp["output_token_count"].(float64))
 	}
+
+	// Call tokenizer service
+	tokenizerReq := map[string]interface{}{
+		"input_text":  inputText,
+		"output_text": outputText,
+	}
+
+	tokenizerResp, err := common.MakeInternalRequest(
+		ctx,
+		"POST",
+		common.TokenizerService,
+		"/api/tokenize",
+		tokenizerReq,
+	)
+	if err != nil {
+		s.logger.Error("Failed to get token counts from tokenizer: %v", err)
+		return fmt.Errorf("failed to get token counts: %w", err)
+	}
+
+	totalInputTokens := int(tokenizerResp["input_token_count"].(float64))
+	totalOutputTokens := int(tokenizerResp["output_token_count"].(float64))
 
 	// Update transaction with completion details
 	query := `
@@ -902,7 +868,7 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		RETURNING id`
 
 	var transactionID uuid.UUID
-	err := s.db.QueryRowContext(ctx, query,
+	err = s.db.QueryRowContext(ctx, query,
 		totalInputTokens,
 		totalOutputTokens,
 		latency,

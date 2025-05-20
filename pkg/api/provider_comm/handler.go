@@ -2,7 +2,6 @@ package provider_comm
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"net/http"
 
@@ -57,10 +56,7 @@ func (h *Handler) SendRequest(c echo.Context) error {
 		return common.NewBadRequestError("validation failed")
 	}
 
-	// Create a new context with a stream count value
-	ctx := context.WithValue(c.Request().Context(), "stream_count", 0)
-
-	responseBody, err := h.service.SendRequest(ctx, req)
+	responseBody, err := h.service.SendRequest(c.Request().Context(), req)
 	if err != nil {
 		return err // Service errors are already properly formatted
 	}
@@ -75,76 +71,11 @@ func (h *Handler) SendRequest(c echo.Context) error {
 	c.Response().Header().Set("Transfer-Encoding", "chunked")
 	c.Response().WriteHeader(http.StatusOK)
 
-	// Create a custom reader that counts chunks
-	chunkCount := 0
-	countingReader := &countingReader{
-		reader: teeReader,
-		onChunk: func() {
-			chunkCount++
-			// Update the stream count in the context
-			ctx = context.WithValue(ctx, "stream_count", chunkCount)
-			// Update the request context
-			c.SetRequest(c.Request().WithContext(ctx))
-		},
-		buffer: make([]byte, 0),
-	}
-
-	// Create a custom writer that maintains context
-	writer := &contextWriter{
-		writer: c.Response().Writer,
-		ctx:    ctx,
-	}
-
-	// Stream the response body directly to the client while also logging and counting chunks
-	_, err = io.Copy(writer, countingReader)
+	// Stream the response body directly to the client while also logging
+	_, err = io.Copy(c.Response(), teeReader)
 
 	// Log what was sent to the client
 	h.logger.Info("Raw response sent to client: %s", logBuffer.String())
-	h.logger.Info("Total chunks streamed: %d", chunkCount)
 
 	return err
-}
-
-// contextWriter is a custom writer that maintains context
-type contextWriter struct {
-	writer io.Writer
-	ctx    context.Context
-}
-
-func (w *contextWriter) Write(p []byte) (n int, err error) {
-	return w.writer.Write(p)
-}
-
-// countingReader is a custom reader that counts chunks
-type countingReader struct {
-	reader  io.Reader
-	onChunk func()
-	buffer  []byte
-}
-
-func (r *countingReader) Read(p []byte) (n int, err error) {
-	n, err = r.reader.Read(p)
-	if n > 0 {
-		// Append to buffer
-		r.buffer = append(r.buffer, p[:n]...)
-
-		// Process complete chunks
-		for {
-			// Find next chunk boundary
-			chunkEnd := bytes.Index(r.buffer, []byte("\n\n"))
-			if chunkEnd == -1 {
-				break // No complete chunk found
-			}
-
-			// Extract chunk
-			chunk := r.buffer[:chunkEnd+2]
-			r.buffer = r.buffer[chunkEnd+2:]
-
-			// Only count if it's a data chunk and not [DONE]
-			if bytes.HasPrefix(chunk, []byte("data: ")) && !bytes.Contains(chunk, []byte("[DONE]")) {
-				r.onChunk()
-			}
-		}
-	}
-	return n, err
 }
