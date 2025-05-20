@@ -274,6 +274,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	if req.Stream {
 		// Get the stream output text from context
 		if outputText, ok := ctx.Value("stream_output_text").(string); ok {
+			s.logger.Info("DEBUG: Found stream output text in context, length: %d", len(outputText))
 			// Create a new context with the output text
 			newCtx := context.WithValue(ctx, "stream_output_text", outputText)
 			// Return a wrapper that includes both the response and context
@@ -284,6 +285,8 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 				Response: response.(io.ReadCloser),
 				Context:  newCtx,
 			}, nil
+		} else {
+			s.logger.Error("DEBUG: No stream output text found in context")
 		}
 	}
 

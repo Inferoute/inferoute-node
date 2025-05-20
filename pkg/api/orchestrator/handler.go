@@ -177,7 +177,6 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 
 		// Handle wrapped response
 		var responseBody io.ReadCloser
-		var responseCtx context.Context
 
 		// Check if response is wrapped
 		if wrappedResp, ok := response.(struct {
@@ -186,7 +185,6 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 		}); ok {
 			h.logger.Info("DEBUG: Received wrapped response with context")
 			responseBody = wrappedResp.Response
-			responseCtx = wrappedResp.Context
 		} else {
 			// Fallback to direct response
 			var ok bool
@@ -195,7 +193,6 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 				h.logger.Error("Invalid streaming response type: %T", response)
 				return echo.NewHTTPError(http.StatusInternalServerError, "Invalid streaming response")
 			}
-			responseCtx = c.Request().Context()
 			h.logger.Info("DEBUG: Using direct response with request context")
 		}
 		defer responseBody.Close()
@@ -255,15 +252,11 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 		outputText := outputTextBuilder.String()
 		h.logger.Info("DEBUG: Final accumulated text length: %d", len(outputText))
 
-		ctx := context.WithValue(responseCtx, "stream_output_text", outputText)
-		c.SetRequest(c.Request().WithContext(ctx))
+		// Create a new context with the output text
+		newCtx := context.WithValue(c.Request().Context(), "stream_output_text", outputText)
 
-		// Verify context was set
-		if val, ok := ctx.Value("stream_output_text").(string); ok {
-			h.logger.Info("DEBUG: Verified context value set, length: %d", len(val))
-		} else {
-			h.logger.Error("DEBUG: Failed to verify context value")
-		}
+		// Set the context in the request
+		c.SetRequest(c.Request().WithContext(newCtx))
 
 		return nil
 	}
