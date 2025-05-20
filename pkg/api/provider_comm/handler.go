@@ -2,6 +2,7 @@ package provider_comm
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 
@@ -71,11 +72,39 @@ func (h *Handler) SendRequest(c echo.Context) error {
 	c.Response().Header().Set("Transfer-Encoding", "chunked")
 	c.Response().WriteHeader(http.StatusOK)
 
-	// Stream the response body directly to the client while also logging
-	_, err = io.Copy(c.Response(), teeReader)
+	// Create a custom reader that counts chunks
+	chunkCount := 0
+	countingReader := &countingReader{
+		reader: teeReader,
+		onChunk: func() {
+			chunkCount++
+			// Update the stream count in the context
+			ctx := c.Request().Context()
+			ctx = context.WithValue(ctx, "stream_count", chunkCount)
+			c.Request().WithContext(ctx)
+		},
+	}
+
+	// Stream the response body directly to the client while also logging and counting chunks
+	_, err = io.Copy(c.Response(), countingReader)
 
 	// Log what was sent to the client
 	h.logger.Info("Raw response sent to client: %s", logBuffer.String())
+	h.logger.Info("Total chunks streamed: %d", chunkCount)
 
 	return err
+}
+
+// countingReader is a custom reader that counts chunks
+type countingReader struct {
+	reader  io.Reader
+	onChunk func()
+}
+
+func (r *countingReader) Read(p []byte) (n int, err error) {
+	n, err = r.reader.Read(p)
+	if n > 0 {
+		r.onChunk()
+	}
+	return n, err
 }
