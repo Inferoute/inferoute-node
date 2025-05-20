@@ -83,6 +83,7 @@ func (h *Handler) SendRequest(c echo.Context) error {
 			ctx = context.WithValue(ctx, "stream_count", chunkCount)
 			c.SetRequest(c.Request().WithContext(ctx))
 		},
+		buffer: make([]byte, 0),
 	}
 
 	// Stream the response body directly to the client while also logging and counting chunks
@@ -99,14 +100,31 @@ func (h *Handler) SendRequest(c echo.Context) error {
 type countingReader struct {
 	reader  io.Reader
 	onChunk func()
+	buffer  []byte
 }
 
 func (r *countingReader) Read(p []byte) (n int, err error) {
 	n, err = r.reader.Read(p)
 	if n > 0 {
-		// Only count actual data chunks, not empty ones
-		if !bytes.Equal(p[:n], []byte("data: [DONE]\n\n")) {
-			r.onChunk()
+		// Append to buffer
+		r.buffer = append(r.buffer, p[:n]...)
+
+		// Process complete chunks
+		for {
+			// Find next chunk boundary
+			chunkEnd := bytes.Index(r.buffer, []byte("\n\n"))
+			if chunkEnd == -1 {
+				break // No complete chunk found
+			}
+
+			// Extract chunk
+			chunk := r.buffer[:chunkEnd+2]
+			r.buffer = r.buffer[chunkEnd+2:]
+
+			// Only count if it's a data chunk and not [DONE]
+			if bytes.HasPrefix(chunk, []byte("data: ")) && !bytes.Contains(chunk, []byte("[DONE]")) {
+				r.onChunk()
+			}
 		}
 	}
 	return n, err
