@@ -50,12 +50,6 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (io.R
 	httpReq.Header.Set("X-Request-ID", req.HMAC) // Use HMAC as request ID
 	httpReq.Header.Set("X-Model-Name", req.ModelName)
 
-	// Log the outgoing request for debugging
-	s.logger.Info("Sending request to provider:")
-	s.logger.Info("  URL: %s", req.ProviderURL)
-	s.logger.Info("  Headers: %v", httpReq.Header)
-	s.logger.Info("  Body: %s", string(requestBody))
-
 	startTime := time.Now()
 	resp, err := s.client.Do(httpReq)
 	networkTime := time.Since(startTime).Milliseconds()
@@ -65,12 +59,6 @@ func (s *Service) SendRequest(ctx context.Context, req SendRequestRequest) (io.R
 	if err != nil {
 		s.logger.Error("Provider request failed after %dms: %v", networkTime, err)
 		return nil, common.ErrInternalServer(fmt.Errorf("error sending request to provider: %w", err))
-	}
-
-	s.logger.Info("Response received from provider")
-	s.logger.Info("Response headers:")
-	for k, v := range resp.Header {
-		s.logger.Info("  %s: %v", k, v)
 	}
 
 	// Check response status code first

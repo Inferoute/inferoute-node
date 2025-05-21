@@ -94,6 +94,11 @@ services:
       - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
       - "traefik.http.routers.model-pricing.tls.certresolver=letsencrypt"
 
+  tokenizer:
+    build:
+      args:
+        ENVIRONMENT: production
+
   auth:
     build:
       args:
