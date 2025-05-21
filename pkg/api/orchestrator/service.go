@@ -849,18 +849,11 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		}
 		// The stream has already been read by the client, so GetCapturedData should have the full content.
 		capturedSSEData := capturingReader.GetCapturedData()
-		s.logger.Info("[FinalizeTransaction] Captured SSE data length for stream: %d", len(capturedSSEData))
-		if len(capturedSSEData) < 2000 { // Log small data for inspection
-			s.logger.Info("[FinalizeTransaction] Captured SSE Data for stream:\n%s", capturedSSEData)
-		} else if len(capturedSSEData) > 0 {
-			s.logger.Info("[FinalizeTransaction] Captured SSE Data for stream is too long to log fully. First 2000 chars:\n%s", capturedSSEData[:2000])
-		} else {
-			s.logger.Info("[FinalizeTransaction] Captured SSE Data for stream is empty.")
-		}
-
-		outputText, err = parseSSEStreamToText(capturedSSEData, s.logger) // Pass logger
+		outputText, err = parseSSEStreamToText(capturedSSEData)
 		if err != nil {
 			s.logger.Error("Failed to parse SSE stream to text: %v", err)
+			// Decide if we should error out or use placeholder tokens
+			// For now, let's use placeholders if parsing fails to avoid payment issues
 			totalInputTokens = 1  // Placeholder
 			totalOutputTokens = 1 // Placeholder
 			s.logger.Warn("Using placeholder token counts for streaming response due to SSE parsing error")
