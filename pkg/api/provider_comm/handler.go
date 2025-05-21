@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
@@ -66,8 +67,12 @@ func (h *Handler) SendRequest(c echo.Context) error {
 	var logBuffer bytes.Buffer
 	teeReader := io.TeeReader(responseBody, &logBuffer)
 
-	// Copy headers from provider response
-	c.Response().Header().Set("Content-Type", "application/json")
+	// Set Content-Type based on what the orchestrator (our client) accepts
+	if strings.Contains(c.Request().Header.Get("Accept"), "text/event-stream") {
+		c.Response().Header().Set("Content-Type", "text/event-stream")
+	} else {
+		c.Response().Header().Set("Content-Type", "application/json") // Default or copy from provider if known
+	}
 	c.Response().Header().Set("Transfer-Encoding", "chunked")
 	c.Response().WriteHeader(http.StatusOK)
 

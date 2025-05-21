@@ -571,7 +571,7 @@ async function getUserStats() {
 - Implements session management
 - Handles all frontend-to-backend communication securely
 
-## 5. Tokenizer (to be created)
+## 5. Tokenizer 
 
 A lightweight Go microservice to count input and output tokens using a BPE tokenizer (GPT-2 compatible). This enables model-agnostic token accounting for prompt and completion texts across the Inferoute platform.
 
