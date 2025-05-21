@@ -237,13 +237,12 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	s.logger.Info("Placing holding deposit took: %dms", time.Since(holdingStartTime).Milliseconds())
 
 	// 8. Send request to provider
-	startTime := time.Now()
+	providerCallStartTime := time.Now()
 	providerResponse, successfulProvider, err := s.sendRequestToProvider(ctx, selectedProviders, req, hmac)
-	providerRequestTime := time.Since(startTime).Milliseconds()
+	providerRequestTime := time.Since(providerCallStartTime).Milliseconds()
 	s.logger.Info("Provider request took: %dms", providerRequestTime)
 
 	var finalResponseForClient interface{}
-	var responseForFinalizeTx interface{}
 
 	if err != nil {
 		_ = s.releaseHoldingDeposit(ctx) // Attempt to release deposit even if provider request failed
@@ -255,40 +254,37 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 		return nil, fmt.Errorf("failed to send request to provider: %w", err)
 	}
 
+	latency := time.Since(providerCallStartTime).Milliseconds()
+
 	if req.Stream {
-		streamBody, ok := providerResponse.(io.ReadCloser) // Corrected type assertion
+		streamBody, ok := providerResponse.(io.ReadCloser)
 		if !ok || streamBody == nil {
 			_ = s.releaseHoldingDeposit(ctx)
 			s.logger.Error("Streaming response from sendRequestToProvider was not an io.ReadCloser as expected, got %T", providerResponse)
-			// Attempt to cancel transaction
 			if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
 				s.logger.Error("Failed to cancel transaction after stream processing error: %v", cancelErr)
 			}
 			return nil, fmt.Errorf("internal error processing stream body")
 		}
-		capturingReader := NewCapturingReadCloser(streamBody)
-		finalResponseForClient = capturingReader // This will be streamed to the client
-		responseForFinalizeTx = capturingReader  // This will be used to get captured data
+		finalResponseForClient = NewCapturingReadCloser(streamBody, s, ctx, tx, latency, successfulProvider)
 	} else {
 		finalResponseForClient = providerResponse
-		responseForFinalizeTx = providerResponse
-	}
+		// For non-streaming, finalize immediately
+		// 9. Release holding deposit (moved before finalize for non-streaming)
+		releaseStartTime := time.Now()
+		if releaseErr := s.releaseHoldingDeposit(ctx); releaseErr != nil {
+			s.logger.Error("Failed to release holding deposit (non-stream): %v", releaseErr)
+			// Non-fatal, proceed to finalize
+		}
+		s.logger.Info("Releasing holding deposit took (non-stream): %dms", time.Since(releaseStartTime).Milliseconds())
 
-	latency := time.Since(startTime).Milliseconds()
-
-	// 9. Release holding deposit
-	releaseStartTime := time.Now()
-	if err := s.releaseHoldingDeposit(ctx); err != nil {
-		s.logger.Error("Failed to release holding deposit: %v", err)
+		// 10. Update transaction and publish payment message (non-stream)
+		finalizeStartTime := time.Now()
+		if finalizeErr := s.finalizeTransaction(ctx, tx, finalResponseForClient, latency, successfulProvider); finalizeErr != nil {
+			s.logger.Error("Failed to finalize transaction (non-stream): %v", finalizeErr)
+		}
+		s.logger.Info("Finalizing transaction took (non-stream): %dms", time.Since(finalizeStartTime).Milliseconds())
 	}
-	s.logger.Info("Releasing holding deposit took: %dms", time.Since(releaseStartTime).Milliseconds())
-
-	// 10. Update transaction and publish payment message
-	finalizeStartTime := time.Now()
-	if err := s.finalizeTransaction(ctx, tx, responseForFinalizeTx, latency, successfulProvider); err != nil {
-		s.logger.Error("Failed to finalize transaction: %v", err)
-	}
-	s.logger.Info("Finalizing transaction took: %dms", time.Since(finalizeStartTime).Milliseconds())
 
 	totalTime := time.Since(totalStartTime).Milliseconds()
 	s.logger.Info("Total orchestration time: %dms (Provider request: %dms, Overhead: %dms)",
@@ -820,14 +816,19 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 // finalizeTransaction updates the transaction with completion details
 func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord, responseForTx interface{}, latency int64, provider *ProviderInfo) error {
-	// Get the original request from context
+	// Release holding deposit here, as this function is now called for both streaming (at the end) and non-streaming.
+	// For streaming, this happens after the client has finished consuming the stream.
+	if releaseErr := s.releaseHoldingDeposit(ctx); releaseErr != nil {
+		s.logger.Error("Failed to release holding deposit during finalizeTransaction: %v", releaseErr)
+		// This is non-fatal for the rest of finalizeTransaction, but should be monitored.
+	}
+
 	originalReq, ok := ctx.Value("original_request").(*OpenAIRequest)
 	if !ok {
 		s.logger.Error("DEBUG: original request not found in context for finalizeTransaction")
 		return fmt.Errorf("missing original request in context for finalizeTransaction")
 	}
 
-	// Extract input text from the original request
 	var inputText string
 	if len(originalReq.Messages) > 0 {
 		for _, msg := range originalReq.Messages {
@@ -838,8 +839,8 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 	}
 
 	var totalInputTokens, totalOutputTokens int
-	var outputText string // Declare outputText here to be used for tokenizer
-	var err error
+	var outputText string
+	var sseParseErr error // Renamed to avoid conflict with `err` from tokenizer
 
 	if originalReq.Stream {
 		capturingReader, ok := responseForTx.(*CapturingReadCloser)
@@ -847,21 +848,16 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 			s.logger.Error("DEBUG: Stream response for finalizeTransaction was not *CapturingReadCloser as expected: %T", responseForTx)
 			return fmt.Errorf("internal error processing stream response for finalization")
 		}
-		// The stream has already been read by the client, so GetCapturedData should have the full content.
 		capturedSSEData := capturingReader.GetCapturedData()
-		outputText, err = parseSSEStreamToText(capturedSSEData)
-		if err != nil {
-			s.logger.Error("Failed to parse SSE stream to text: %v", err)
-			// Decide if we should error out or use placeholder tokens
-			// For now, let's use placeholders if parsing fails to avoid payment issues
-			totalInputTokens = 1  // Placeholder
-			totalOutputTokens = 1 // Placeholder
+		outputText, sseParseErr = parseSSEStreamToText(capturedSSEData)
+		if sseParseErr != nil {
+			s.logger.Error("Failed to parse SSE stream to text: %v. Captured data length: %d", sseParseErr, len(capturedSSEData))
+			totalInputTokens = 1
+			totalOutputTokens = 1
 			s.logger.Warn("Using placeholder token counts for streaming response due to SSE parsing error")
 		} else {
 			s.logger.Info("Successfully parsed SSE stream. Full output text length: %d", len(outputText))
-			// Now tokenize the reconstructed outputText and inputText
 		}
-
 	} else {
 		responseMap, ok := responseForTx.(map[string]interface{})
 		if !ok {
@@ -881,11 +877,10 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		}
 	}
 
-	// Tokenize only if we haven't hit an SSE parsing error that forced placeholders (or if not streaming)
-	if !(originalReq.Stream && err != nil) { // err would be non-nil if parseSSEStreamToText failed
+	if !(originalReq.Stream && sseParseErr != nil) { // Only tokenize if not a stream with SSE parsing error
 		tokenizerReq := map[string]interface{}{
 			"input_text":  inputText,
-			"output_text": outputText, // outputText is now populated for both stream/non-stream if successful
+			"output_text": outputText,
 		}
 		tokenizerResp, tokErr := common.MakeInternalRequest(
 			ctx,
@@ -896,7 +891,6 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		)
 		if tokErr != nil {
 			s.logger.Error("Failed to get token counts from tokenizer: %v", tokErr)
-			// Fallback to placeholders if tokenizer fails, to ensure transaction finalizes
 			totalInputTokens = 1
 			totalOutputTokens = 1
 			s.logger.Warn("Using placeholder token counts due to tokenizer service error")
@@ -906,7 +900,6 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		}
 	}
 
-	// Update transaction with completion details
 	query := `
 		UPDATE transactions 
 		SET total_input_tokens = $1,
@@ -918,7 +911,6 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		RETURNING id`
 
 	var transactionID uuid.UUID
-	// Use dbErr for the database operation to avoid conflict with `err` from SSE parsing
 	dbErr := s.db.QueryRowContext(ctx, query,
 		totalInputTokens,
 		totalOutputTokens,
@@ -934,7 +926,6 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 
 	s.logger.Info("Updated transaction %s with successful provider %s and token counts (In: %d, Out: %d)", tx.ID, provider.ProviderID, totalInputTokens, totalOutputTokens)
 
-	// Create payment message with the successful provider's information
 	paymentMsg := PaymentMessage{
 		ConsumerID:        tx.ConsumerID,
 		ProviderID:        provider.ProviderID,
@@ -947,7 +938,7 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		Latency:           latency,
 	}
 
-	msgBytes, err := json.Marshal(paymentMsg)
+	msgBytes, err := json.Marshal(paymentMsg) // Shadowing `err` from sseParseErr; consider renaming for clarity if needed
 	if err != nil {
 		return fmt.Errorf("failed to marshal payment message: %w", err)
 	}
