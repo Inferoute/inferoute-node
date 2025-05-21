@@ -74,8 +74,5 @@ func (h *Handler) SendRequest(c echo.Context) error {
 	// Stream the response body directly to the client while also logging
 	_, err = io.Copy(c.Response(), teeReader)
 
-	// Log what was sent to the client
-	h.logger.Info("Raw response sent to client: %s", logBuffer.String())
-
 	return err
 }
