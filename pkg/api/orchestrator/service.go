@@ -40,25 +40,25 @@ func NewService(db *db.DB, logger *common.Logger, rmq *rabbitmq.Client, internal
 func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req *OpenAIRequest) (interface{}, error) {
 	totalStartTime := time.Now()
 
-	// Add values to context that are needed throughout the request lifecycle
-	ctx = context.WithValue(ctx, common.CtxKeyInternalAPIKey, s.internalAPIKey)
-	ctx = context.WithValue(ctx, common.CtxKeyLogger, s.logger)
-	ctx = context.WithValue(ctx, common.CtxKeyOriginalRequest, req)
+	// Add internal key to context
+	ctx = context.WithValue(ctx, "internal_key", s.internalAPIKey)
+	ctx = context.WithValue(ctx, "logger", s.logger)
+	ctx = context.WithValue(ctx, "original_request", req) // Store original request in context
 
 	// 0 Add max_tokens and temperature to context if they exist in the request
 	if req.MaxTokens > 0 {
 		ctx = context.WithValue(ctx, "max_tokens", req.MaxTokens)
-		s.logger.InfoCtx(ctx, "Added max_tokens=%d to context", req.MaxTokens)
+		s.logger.Info("Added max_tokens=%d to context", req.MaxTokens)
 	}
 
 	if req.Temperature != 0 {
 		ctx = context.WithValue(ctx, "temperature", req.Temperature)
-		s.logger.InfoCtx(ctx, "Added temperature=%f to context", req.Temperature)
+		s.logger.Info("Added temperature=%f to context", req.Temperature)
 	}
 
 	// 0.1 Cursor hack - Handle gpt-4o model by getting cheapest available model
 	if req.Model == "gpt-4o" {
-		s.logger.InfoCtx(ctx, "gpt-4o model requested, fetching cheapest available model")
+		s.logger.Info("gpt-4o model requested, fetching cheapest available model")
 		response, err := common.MakeInternalRequestRaw(
 			ctx,
 			"GET",
@@ -77,7 +77,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 
 		if len(providersData) > 0 {
 			if modelName, ok := providersData[0]["model_name"].(string); ok {
-				s.logger.InfoCtx(ctx, "Using cheapest model: %s instead of gpt-4o", modelName)
+				s.logger.Info("Using cheapest model: %s instead of gpt-4o", modelName)
 				req.Model = modelName
 			}
 		}
@@ -89,7 +89,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 		"api_key": ctx.Value("api_key").(string),
 	}
 
-	s.logger.InfoCtx(ctx, "Validating API key and checking balance")
+	s.logger.Info("Validating API key and checking balance")
 	authResp, err := common.MakeInternalRequest(
 		ctx,
 		"POST",
@@ -97,58 +97,58 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 		"/api/auth/validate",
 		authReq,
 	)
-	s.logger.InfoCtx(ctx, "Auth validation took: %dms", time.Since(authStartTime).Milliseconds())
+	s.logger.Info("Auth validation took: %dms", time.Since(authStartTime).Milliseconds())
 	if err != nil {
-		s.logger.ErrorCtx(ctx, "Failed to validate API key: %v", err)
+		s.logger.Error("Failed to validate API key: %v", err)
 		return nil, fmt.Errorf("failed to validate API key: %w", err)
 	}
 
 	// Check if API key is valid
 	if valid, ok := authResp["valid"].(bool); !ok || !valid {
-		s.logger.ErrorCtx(ctx, "API key validation failed")
+		s.logger.Error("API key validation failed")
 		return nil, common.ErrUnauthorized(fmt.Errorf("invalid API key"))
 	}
 
 	// Store user_id from auth response
 	userIDStr, ok := authResp["user_id"].(string)
 	if !ok {
-		s.logger.ErrorCtx(ctx, "Failed to get user_id from auth response")
+		s.logger.Error("Failed to get user_id from auth response")
 		return nil, common.ErrInternalServer(fmt.Errorf("failed to get user information"))
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		s.logger.ErrorCtx(ctx, "Failed to parse user_id: %v", err)
+		s.logger.Error("Failed to parse user_id: %v", err)
 		return nil, common.ErrInternalServer(fmt.Errorf("invalid user_id format"))
 	}
 	s.userID = userID
-	ctx = context.WithValue(ctx, common.CtxKeyUserID, userID) // Add userID to context for later use if needed
 
+	// Check if user has sufficient balance
 	availableBalance, ok := authResp["available_balance"].(float64)
 	if !ok {
-		s.logger.ErrorCtx(ctx, "Failed to get available balance from auth response")
+		s.logger.Error("Failed to get available balance from auth response")
 		return nil, common.ErrInternalServer(fmt.Errorf("failed to get balance information"))
 	}
 
-	s.logger.InfoCtx(ctx, "Current balance - Available: %v", availableBalance)
+	s.logger.Info("Current balance - Available: %v", availableBalance)
 	if availableBalance < 1.0 {
-		s.logger.ErrorCtx(ctx, "Insufficient funds: available_balance=%v", availableBalance)
+		s.logger.Error("Insufficient funds: available_balance=%v", availableBalance)
 		return nil, common.ErrInsufficientFunds(fmt.Errorf("insufficient funds: minimum $1.00 required"))
 	}
 
 	// //1. Get user settings
 	userSettingsStartTime := time.Now()
 	userSettings, err := s.getUserSettings(ctx)
-	s.logger.InfoCtx(ctx, "Getting user settings took: %dms", time.Since(userSettingsStartTime).Milliseconds())
+	s.logger.Info("Getting user settings took: %dms", time.Since(userSettingsStartTime).Milliseconds())
 	if err != nil {
-		s.logger.ErrorCtx(ctx, "Failed to get user settings: %v", err)
+		s.logger.Error("Failed to get user settings: %v", err)
 		return nil, fmt.Errorf("failed to get user settings: %w", err)
 	}
 
 	// 2. Get consumer settings (global and model-specific)
 	consumerSettingsStartTime := time.Now()
 	settings, err := s.getConsumerSettings(ctx, consumerID, req.Model)
-	s.logger.InfoCtx(ctx, "Getting consumer settings took: %dms", time.Since(consumerSettingsStartTime).Milliseconds())
+	s.logger.Info("Getting consumer settings took: %dms", time.Since(consumerSettingsStartTime).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get consumer settings: %w", err)
 	}
@@ -158,17 +158,17 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 		// Only get user providers if DefaultToOwnModels is true
 		userProvidersStartTime := time.Now()
 		userProviders, err = s.getUserProviders(ctx, req.Model)
-		s.logger.InfoCtx(ctx, "Getting user providers took: %dms", time.Since(userProvidersStartTime).Milliseconds())
+		s.logger.Info("Getting user providers took: %dms", time.Since(userProvidersStartTime).Milliseconds())
 		if err != nil {
 			return nil, fmt.Errorf("failed to get user providers: %w", err)
 		}
-		s.logger.InfoCtx(ctx, "Found %d user providers with DefaultToOwnModels=true", len(userProviders))
+		s.logger.Info("Found %d user providers with DefaultToOwnModels=true", len(userProviders))
 	}
 
 	// 3.b Get healthy providers within price constraints
 	providersStartTime := time.Now()
 	providers, err := s.getHealthyProviders(ctx, req.Model, settings)
-	s.logger.InfoCtx(ctx, "Getting healthy providers took: %dms", time.Since(providersStartTime).Milliseconds())
+	s.logger.Info("Getting healthy providers took: %dms", time.Since(providersStartTime).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get healthy providers: %w", err)
 	}
@@ -180,7 +180,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	// 4. Select best providers based on price and latency
 	selectProvidersStartTime := time.Now()
 	selectedProviders := s.selectBestProviders(providers, req.Sort)
-	s.logger.InfoCtx(ctx, "Selecting best providers took: %dms", time.Since(selectProvidersStartTime).Milliseconds())
+	s.logger.Info("Selecting best providers took: %dms", time.Since(selectProvidersStartTime).Milliseconds())
 	if len(selectedProviders) == 0 {
 		return nil, usermsg.NoMatchingProviderError(req.Model, settings.MaxInputPriceTokens, settings.MaxOutputPriceTokens)
 	}
@@ -199,7 +199,10 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 		combinedProviders := make([]ProviderInfo, 0, userProviderCount+nonUserProviderCount)
 		combinedProviders = append(combinedProviders, userProvidersList...)
 		combinedProviders = append(combinedProviders, nonUserProvidersList...)
-		s.logger.InfoCtx(ctx, "Combined %d user providers with %d non-user providers", userProviderCount, nonUserProviderCount)
+
+		s.logger.Info("Combined %d user providers with %d non-user providers",
+			userProviderCount, nonUserProviderCount)
+
 		selectedProviders = combinedProviders
 	}
 
@@ -209,15 +212,15 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	// 5. Generate HMAC
 	hmacStartTime := time.Now()
 	hmac, err := s.generateHMAC(ctx, consumerID, req)
-	s.logger.InfoCtx(ctx, "Generating HMAC took: %dms", time.Since(hmacStartTime).Milliseconds())
+	s.logger.Info("Generating HMAC took: %dms", time.Since(hmacStartTime).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate HMAC: %w", err)
 	}
 
 	// 6. Create transaction record
 	txStartTime := time.Now()
-	txRecord, err := s.createTransaction(ctx, consumerID, selectedProvider, selectedProviders, req.Model, hmac)
-	s.logger.InfoCtx(ctx, "Creating transaction took: %dms", time.Since(txStartTime).Milliseconds())
+	tx, err := s.createTransaction(ctx, consumerID, selectedProvider, selectedProviders, req.Model, hmac)
+	s.logger.Info("Creating transaction took: %dms", time.Since(txStartTime).Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transaction: %w", err)
 	}
@@ -225,108 +228,71 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	// 7. Place holding deposit
 	holdingStartTime := time.Now()
 	if err := s.placeHoldingDeposit(ctx); err != nil {
-		if cancelErr := s.cancelTransaction(ctx, txRecord.ID); cancelErr != nil {
-			s.logger.ErrorCtx(ctx, "Failed to cancel transaction after holding deposit failure: %v", cancelErr)
+		// Attempt to cancel transaction if holding deposit fails
+		if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
+			s.logger.Error("Failed to cancel transaction after holding deposit failure: %v", cancelErr)
 		}
 		return nil, fmt.Errorf("failed to place holding deposit: %w", err)
 	}
-	s.logger.InfoCtx(ctx, "Placing holding deposit took: %dms", time.Since(holdingStartTime).Milliseconds())
+	s.logger.Info("Placing holding deposit took: %dms", time.Since(holdingStartTime).Milliseconds())
 
 	// 8. Send request to provider
-	providerCallStartTime := time.Now()
+	startTime := time.Now()
 	providerResponse, successfulProvider, err := s.sendRequestToProvider(ctx, selectedProviders, req, hmac)
-	providerRequestTime := time.Since(providerCallStartTime).Milliseconds()
-	s.logger.InfoCtx(ctx, "Provider request took: %dms", providerRequestTime)
+	providerRequestTime := time.Since(startTime).Milliseconds()
+	s.logger.Info("Provider request took: %dms", providerRequestTime)
 
 	var finalResponseForClient interface{}
 	var responseForFinalizeTx interface{}
 
 	if err != nil {
-		_ = s.releaseHoldingDeposit(ctx)
-		if cancelErr := s.cancelTransaction(ctx, txRecord.ID); cancelErr != nil {
-			s.logger.ErrorCtx(ctx, "Failed to cancel transaction: %v", cancelErr)
+		_ = s.releaseHoldingDeposit(ctx) // Attempt to release deposit even if provider request failed
+		if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
+			s.logger.Error("Failed to cancel transaction: %v", cancelErr)
 		} else {
-			s.logger.InfoCtx(ctx, "Transaction %s canceled: all providers failed or provider request error", txRecord.ID)
+			s.logger.Info("Transaction %s canceled: all providers failed or provider request error", tx.ID)
 		}
 		return nil, fmt.Errorf("failed to send request to provider: %w", err)
 	}
 
-	latencyForFinalize := time.Since(providerCallStartTime).Milliseconds() // Latency up to receiving response (or stream start)
-
 	if req.Stream {
-		streamBody, ok := providerResponse.(io.ReadCloser)
+		streamBody, ok := providerResponse.(io.ReadCloser) // Corrected type assertion
 		if !ok || streamBody == nil {
 			_ = s.releaseHoldingDeposit(ctx)
-			s.logger.ErrorCtx(ctx, "Streaming response from sendRequestToProvider was not an io.ReadCloser as expected, got %T", providerResponse)
-			if cancelErr := s.cancelTransaction(ctx, txRecord.ID); cancelErr != nil {
-				s.logger.ErrorCtx(ctx, "Failed to cancel transaction after stream processing error: %v", cancelErr)
+			s.logger.Error("Streaming response from sendRequestToProvider was not an io.ReadCloser as expected, got %T", providerResponse)
+			// Attempt to cancel transaction
+			if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
+				s.logger.Error("Failed to cancel transaction after stream processing error: %v", cancelErr)
 			}
 			return nil, fmt.Errorf("internal error processing stream body")
 		}
 		capturingReader := NewCapturingReadCloser(streamBody)
-		finalResponseForClient = capturingReader
-		responseForFinalizeTx = capturingReader // Pass the capturer to the async finalization
-
-		// Asynchronously finalize the transaction after the stream is done
-		go func(bgCtx context.Context, currentTx *TransactionRecord, capturer *CapturingReadCloser, prov *ProviderInfo, lat int64) {
-			// Create a new context for this goroutine, detaching from the original request's context if it might be cancelled
-			// but still carry over necessary values like logger and original request for finalization.
-			finalizeCtx := context.Background()
-			if logger, ok := bgCtx.Value(common.CtxKeyLogger).(*common.Logger); ok {
-				finalizeCtx = context.WithValue(finalizeCtx, common.CtxKeyLogger, logger)
-			}
-			if origReq, ok := bgCtx.Value(common.CtxKeyOriginalRequest).(*OpenAIRequest); ok {
-				finalizeCtx = context.WithValue(finalizeCtx, common.CtxKeyOriginalRequest, origReq)
-			}
-			if internalKey, ok := bgCtx.Value(common.CtxKeyInternalAPIKey).(string); ok {
-				finalizeCtx = context.WithValue(finalizeCtx, common.CtxKeyInternalAPIKey, internalKey)
-			}
-			if userID, ok := bgCtx.Value(common.CtxKeyUserID).(uuid.UUID); ok {
-				finalizeCtx = context.WithValue(finalizeCtx, common.CtxKeyUserID, userID)
-			}
-
-			<-capturer.Done() // Wait for the stream to be fully read and closed by Echo
-
-			// Recapture release holding deposit logic within the goroutine for streams if it makes sense
-			// or ensure it's reliably called. For now, it's outside.
-			// However, the main release is already called. This could be a secondary check or for specific stream related funds.
-
-			s.logger.InfoCtx(finalizeCtx, "Stream to client finished for transaction %s. Proceeding with finalization.", currentTx.ID)
-
-			if err := s.finalizeTransaction(finalizeCtx, currentTx, capturer, lat, prov); err != nil {
-				s.logger.ErrorCtx(finalizeCtx, "Failed to finalize streaming transaction %s in background: %v", currentTx.ID, err)
-			}
-		}(ctx, txRecord, capturingReader, successfulProvider, latencyForFinalize) // Pass original ctx to copy values
-
+		finalResponseForClient = capturingReader // This will be streamed to the client
+		responseForFinalizeTx = capturingReader  // This will be used to get captured data
 	} else {
 		finalResponseForClient = providerResponse
 		responseForFinalizeTx = providerResponse
-		// For non-streaming, finalize immediately
-		// 9. Release holding deposit (called before this block for non-streaming)
-		// 10. Update transaction and publish payment message (called after this block for non-streaming)
 	}
+
+	latency := time.Since(startTime).Milliseconds()
 
 	// 9. Release holding deposit
 	releaseStartTime := time.Now()
 	if err := s.releaseHoldingDeposit(ctx); err != nil {
-		s.logger.ErrorCtx(ctx, "Failed to release holding deposit: %v", err)
-		// Log error but continue as the request might have been successful
+		s.logger.Error("Failed to release holding deposit: %v", err)
 	}
-	s.logger.InfoCtx(ctx, "Releasing holding deposit took: %dms", time.Since(releaseStartTime).Milliseconds())
+	s.logger.Info("Releasing holding deposit took: %dms", time.Since(releaseStartTime).Milliseconds())
 
-	// For non-streaming requests, finalize transaction here.
-	// For streaming, this is handled by the goroutine.
-	if !req.Stream {
-		finalizeStartTime := time.Now()
-		if err := s.finalizeTransaction(ctx, txRecord, responseForFinalizeTx, latencyForFinalize, successfulProvider); err != nil {
-			s.logger.ErrorCtx(ctx, "Failed to finalize non-streaming transaction: %v", err)
-		}
-		s.logger.InfoCtx(ctx, "Finalizing non-streaming transaction took: %dms", time.Since(finalizeStartTime).Milliseconds())
+	// 10. Update transaction and publish payment message
+	finalizeStartTime := time.Now()
+	if err := s.finalizeTransaction(ctx, tx, responseForFinalizeTx, latency, successfulProvider); err != nil {
+		s.logger.Error("Failed to finalize transaction: %v", err)
 	}
+	s.logger.Info("Finalizing transaction took: %dms", time.Since(finalizeStartTime).Milliseconds())
 
-	totalOrchestrationTime := time.Since(totalStartTime).Milliseconds()
-	s.logger.InfoCtx(ctx, "Total orchestration time: %dms (Provider request: %dms, Overhead: %dms)",
-		totalOrchestrationTime, providerRequestTime, totalOrchestrationTime-providerRequestTime)
+	totalTime := time.Since(totalStartTime).Milliseconds()
+	s.logger.Info("Total orchestration time: %dms (Provider request: %dms, Overhead: %dms)",
+		totalTime, providerRequestTime, totalTime-providerRequestTime)
 
 	return finalResponseForClient, nil
 }
@@ -852,18 +818,16 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 	return nil, nil, fmt.Errorf("all providers failed. Last error: %v", lastErr)
 }
 
-// finalizeTransaction updates the transaction with completion details.
-// For streaming requests, responseForTx will be *CapturingReadCloser.
-// For non-streaming, it will be map[string]interface{}.
+// finalizeTransaction updates the transaction with completion details
 func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord, responseForTx interface{}, latency int64, provider *ProviderInfo) error {
-	logger := common.GetLoggerFromContext(ctx) // Use logger from context
-
-	originalReq, ok := ctx.Value(common.CtxKeyOriginalRequest).(*OpenAIRequest)
+	// Get the original request from context
+	originalReq, ok := ctx.Value("original_request").(*OpenAIRequest)
 	if !ok {
-		logger.Error("DEBUG: original request not found in context for finalizeTransaction")
+		s.logger.Error("DEBUG: original request not found in context for finalizeTransaction")
 		return fmt.Errorf("missing original request in context for finalizeTransaction")
 	}
 
+	// Extract input text from the original request
 	var inputText string
 	if len(originalReq.Messages) > 0 {
 		for _, msg := range originalReq.Messages {
@@ -874,29 +838,34 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 	}
 
 	var totalInputTokens, totalOutputTokens int
-	var outputText string
-	var sseParseError error // To track if SSE parsing itself failed
+	var outputText string // Declare outputText here to be used for tokenizer
+	var err error
 
 	if originalReq.Stream {
 		capturingReader, ok := responseForTx.(*CapturingReadCloser)
 		if !ok {
-			logger.Error("DEBUG: Stream response for finalizeTransaction was not *CapturingReadCloser as expected: %T", responseForTx)
-			return fmt.Errorf("internal error processing stream response for finalization: %T", responseForTx)
+			s.logger.Error("DEBUG: Stream response for finalizeTransaction was not *CapturingReadCloser as expected: %T", responseForTx)
+			return fmt.Errorf("internal error processing stream response for finalization")
 		}
+		// The stream has already been read by the client, so GetCapturedData should have the full content.
 		capturedSSEData := capturingReader.GetCapturedData()
-		outputText, sseParseError = parseSSEStreamToText(capturedSSEData)
-		if sseParseError != nil {
-			logger.Error("Failed to parse SSE stream to text: %v. Captured data length: %d", sseParseError, len(capturedSSEData))
+		outputText, err = parseSSEStreamToText(capturedSSEData)
+		if err != nil {
+			s.logger.Error("Failed to parse SSE stream to text: %v", err)
+			// Decide if we should error out or use placeholder tokens
+			// For now, let's use placeholders if parsing fails to avoid payment issues
 			totalInputTokens = 1  // Placeholder
 			totalOutputTokens = 1 // Placeholder
-			logger.Warn("Using placeholder token counts for streaming response due to SSE parsing error")
+			s.logger.Warn("Using placeholder token counts for streaming response due to SSE parsing error")
 		} else {
-			logger.Info("Successfully parsed SSE stream. Full output text length: %d", len(outputText))
+			s.logger.Info("Successfully parsed SSE stream. Full output text length: %d", len(outputText))
+			// Now tokenize the reconstructed outputText and inputText
 		}
+
 	} else {
 		responseMap, ok := responseForTx.(map[string]interface{})
 		if !ok {
-			logger.Error("DEBUG: Non-stream response is not a map: %T", responseForTx)
+			s.logger.Error("DEBUG: Non-stream response is not a map: %T", responseForTx)
 			return fmt.Errorf("invalid non-stream response format for finalization")
 		}
 		if choices, ok := responseMap["choices"].([]interface{}); ok && len(choices) > 0 {
@@ -912,39 +881,28 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		}
 	}
 
-	// Tokenize only if SSE parsing was successful (or if not streaming)
-	if sseParseError == nil {
+	// Tokenize only if we haven't hit an SSE parsing error that forced placeholders (or if not streaming)
+	if !(originalReq.Stream && err != nil) { // err would be non-nil if parseSSEStreamToText failed
 		tokenizerReq := map[string]interface{}{
 			"input_text":  inputText,
-			"output_text": outputText,
+			"output_text": outputText, // outputText is now populated for both stream/non-stream if successful
 		}
-		// Ensure context for MakeInternalRequest has the internal API key
-		// The passed `ctx` to finalizeTransaction should already have it if originated from ProcessRequest's goroutine properly.
 		tokenizerResp, tokErr := common.MakeInternalRequest(
-			ctx, // This context needs all necessary values (logger, internal key)
+			ctx,
 			"POST",
 			common.TokenizerService,
 			"/api/tokenize",
 			tokenizerReq,
 		)
 		if tokErr != nil {
-			logger.Error("Failed to get token counts from tokenizer: %v", tokErr)
+			s.logger.Error("Failed to get token counts from tokenizer: %v", tokErr)
+			// Fallback to placeholders if tokenizer fails, to ensure transaction finalizes
 			totalInputTokens = 1
 			totalOutputTokens = 1
-			logger.Warn("Using placeholder token counts due to tokenizer service error")
+			s.logger.Warn("Using placeholder token counts due to tokenizer service error")
 		} else {
-			if val, ok := tokenizerResp["input_token_count"].(float64); ok {
-				totalInputTokens = int(val)
-			} else {
-				logger.Error("Failed to parse input_token_count from tokenizer response: %v", tokenizerResp["input_token_count"])
-				totalInputTokens = 1 // Fallback
-			}
-			if val, ok := tokenizerResp["output_token_count"].(float64); ok {
-				totalOutputTokens = int(val)
-			} else {
-				logger.Error("Failed to parse output_token_count from tokenizer response: %v", tokenizerResp["output_token_count"])
-				totalOutputTokens = 1 // Fallback
-			}
+			totalInputTokens = int(tokenizerResp["input_token_count"].(float64))
+			totalOutputTokens = int(tokenizerResp["output_token_count"].(float64))
 		}
 	}
 
@@ -970,12 +928,13 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 	).Scan(&transactionID)
 
 	if dbErr != nil {
-		logger.Error("Failed to update transaction with successful provider info: %v", dbErr)
+		s.logger.Error("Failed to update transaction with successful provider info: %v", dbErr)
 		return fmt.Errorf("failed to update transaction: %w", dbErr)
 	}
 
-	logger.Info("Updated transaction %s with successful provider %s and token counts (In: %d, Out: %d)", tx.ID, provider.ProviderID, totalInputTokens, totalOutputTokens)
+	s.logger.Info("Updated transaction %s with successful provider %s and token counts (In: %d, Out: %d)", tx.ID, provider.ProviderID, totalInputTokens, totalOutputTokens)
 
+	// Create payment message with the successful provider's information
 	paymentMsg := PaymentMessage{
 		ConsumerID:        tx.ConsumerID,
 		ProviderID:        provider.ProviderID,
@@ -1002,7 +961,7 @@ func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord
 		return fmt.Errorf("failed to publish payment message: %w", err)
 	}
 
-	logger.Info("Published payment message for transaction %s with successful provider %s", tx.ID, provider.ProviderID)
+	s.logger.Info("Published payment message for transaction %s with successful provider %s", tx.ID, provider.ProviderID)
 	return nil
 }
 

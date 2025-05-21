@@ -108,55 +108,6 @@ func (l *Logger) Error(format string, v ...interface{}) {
 	l.log(ERROR, format, v...)
 }
 
-// InfoCtx logs an info message, expecting a context.Context as the first argument (though not directly used in this basic version yet).
-// It's added for API consistency with future context-aware logging features.
-func (l *Logger) InfoCtx(ctx any, format string, v ...interface{}) {
-	// Temporarily adjust caller depth for context methods
-	_, file, line, ok := runtime.Caller(2)
-	if !ok {
-		file = "???"
-		line = 0
-	}
-	parts := strings.Split(file, "/")
-	fileName := parts[len(parts)-1]
-
-	msg := fmt.Sprintf(format, v...)
-	timestamp := time.Now().Format("2006-01-02T15:04:05.000Z")
-	logEntry := fmt.Sprintf("[%s] [%s] [%s] [%s:%d] %s (ctx)", // Added (ctx) for now
-		timestamp,
-		INFO.String(),
-		l.serviceName,
-		fileName,
-		line,
-		msg,
-	)
-	l.Println(logEntry)
-}
-
-// ErrorCtx logs an error message, expecting a context.Context as the first argument.
-func (l *Logger) ErrorCtx(ctx any, format string, v ...interface{}) {
-	// Temporarily adjust caller depth for context methods
-	_, file, line, ok := runtime.Caller(2)
-	if !ok {
-		file = "???"
-		line = 0
-	}
-	parts := strings.Split(file, "/")
-	fileName := parts[len(parts)-1]
-
-	msg := fmt.Sprintf(format, v...)
-	timestamp := time.Now().Format("2006-01-02T15:04:05.000Z")
-	logEntry := fmt.Sprintf("[%s] [%s] [%s] [%s:%d] %s (ctx)", // Added (ctx) for now
-		timestamp,
-		ERROR.String(),
-		l.serviceName,
-		fileName,
-		line,
-		msg,
-	)
-	l.Println(logEntry)
-}
-
 // Fatal logs a fatal message and terminates the application
 func (l *Logger) Fatal(format string, v ...interface{}) {
 	l.log(FATAL, format, v...)
