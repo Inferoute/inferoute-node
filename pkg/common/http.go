@@ -34,12 +34,12 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 
 	// Get logger from context if available
 	var logger *Logger
-	if l, ok := ctx.Value("logger").(*Logger); ok {
+	if l, ok := ctx.Value(CtxKeyLogger).(*Logger); ok {
 		logger = l
 	}
 
 	// Get internal key from context
-	internalKey, ok := ctx.Value("internal_key").(string)
+	internalKey, ok := ctx.Value(CtxKeyInternalAPIKey).(string)
 	if !ok || internalKey == "" {
 		if logger != nil {
 			logger.Error("Internal key missing from context")
@@ -122,12 +122,12 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 func MakeInternalRequestRaw(ctx context.Context, method string, endpoint ServiceEndpoint, path string, body interface{}) ([]byte, error) {
 	// Get logger from context if available
 	var logger *Logger
-	if l, ok := ctx.Value("logger").(*Logger); ok {
+	if l, ok := ctx.Value(CtxKeyLogger).(*Logger); ok {
 		logger = l
 	}
 
 	// Get internal key from context
-	internalKey, ok := ctx.Value("internal_key").(string)
+	internalKey, ok := ctx.Value(CtxKeyInternalAPIKey).(string)
 	if !ok || internalKey == "" {
 		if logger != nil {
 			logger.Error("Internal key missing from context")
@@ -191,12 +191,12 @@ func MakeInternalRequestRaw(ctx context.Context, method string, endpoint Service
 func MakeInternalRequestStream(ctx context.Context, method string, endpoint ServiceEndpoint, path string, body interface{}) (*http.Response, error) {
 	// Get logger from context if available
 	var logger *Logger
-	if l, ok := ctx.Value("logger").(*Logger); ok {
+	if l, ok := ctx.Value(CtxKeyLogger).(*Logger); ok {
 		logger = l
 	}
 
 	// Get internal key from context
-	internalKey, ok := ctx.Value("internal_key").(string)
+	internalKey, ok := ctx.Value(CtxKeyInternalAPIKey).(string)
 	if !ok || internalKey == "" {
 		if logger != nil {
 			logger.Error("Internal key missing from context")
