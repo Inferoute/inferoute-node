@@ -115,14 +115,12 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 	}
 
 	// Process the request
-	h.logger.Info("Orchestrator Handler: Processing request. Stream flag from parsed request: %v", req.Stream)
 	response, err := h.service.ProcessRequest(c.Request().Context(), consumerID, &req)
 	if err != nil {
-		h.logger.Error("Orchestrator Handler: Error from service.ProcessRequest: %v. Stream flag: %v", err, req.Stream)
+		h.logger.Error("Failed to process request: %v", err)
 
 		// For streaming requests, we need to send the error in SSE format
 		if req.Stream {
-			h.logger.Info("Orchestrator Handler: Handling error for a stream request.")
 			c.Response().Header().Set("Content-Type", "text/event-stream")
 			c.Response().Header().Set("Cache-Control", "no-cache")
 			c.Response().Header().Set("Connection", "keep-alive")
@@ -171,63 +169,44 @@ func (h *Handler) ProcessRequest(c echo.Context) error {
 
 	// Handle streaming response
 	if req.Stream {
-		h.logger.Info("Orchestrator Handler: Entering stream handling block.")
 		// Set streaming headers
 		c.Response().Header().Set("Content-Type", "text/event-stream")
 		c.Response().Header().Set("Cache-Control", "no-cache")
 		c.Response().Header().Set("Connection", "keep-alive")
 		c.Response().Header().Set("Transfer-Encoding", "chunked")
-		h.logger.Info("Orchestrator Handler: Set client response Content-Type to text/event-stream.")
 
 		// Type assert response to io.ReadCloser
 		responseBody, ok := response.(io.ReadCloser)
 		if !ok {
-			h.logger.Error("Orchestrator Handler: Invalid streaming response type from service: %T. Expected io.ReadCloser.", response)
-			return echo.NewHTTPError(http.StatusInternalServerError, "Invalid streaming response from service")
+			h.logger.Error("Invalid streaming response type: %T", response)
+			return echo.NewHTTPError(http.StatusInternalServerError, "Invalid streaming response")
 		}
 		defer responseBody.Close()
-		h.logger.Info("Orchestrator Handler: Successfully type-asserted service response to io.ReadCloser.")
 
 		// Stream the response
-		buffer := make([]byte, 1024) // Standard buffer size for streaming
+		buffer := make([]byte, 1024)
 		for {
-			n, readErr := responseBody.Read(buffer)
+			n, err := responseBody.Read(buffer)
 			if n > 0 {
-				// Log first few bytes of the chunk for inspection
-				// Be cautious with logging potentially large/sensitive data in production
-				// logData := buffer[:n]
-				// if n > 64 { // Log only a snippet
-				// 	logData = buffer[:64]
-				// }
-				// h.logger.Debug("Orchestrator Handler: Streaming %d bytes to client. Data snippet: %s", n, string(logData))
-
 				_, writeErr := c.Response().Write(buffer[:n])
 				if writeErr != nil {
-					h.logger.Error("Orchestrator Handler: Error writing to client response: %v", writeErr)
-					// It's hard to recover here as headers are already sent.
-					// The connection might be closed by the client.
-					return writeErr // or simply break
+					h.logger.Error("Error writing to response: %v", writeErr)
+					return writeErr
 				}
-				c.Response().Flush() // Ensure data is sent to the client
+				c.Response().Flush()
 			}
-
-			if readErr == io.EOF {
-				h.logger.Info("Orchestrator Handler: Reached EOF from service response stream.")
+			if err == io.EOF {
 				break
 			}
-			if readErr != nil {
-				h.logger.Error("Orchestrator Handler: Error reading from service response stream: %v", readErr)
-				// We might want to send an SSE error event to the client here if possible,
-				// but the stream might be broken.
-				return readErr // or break
+			if err != nil {
+				h.logger.Error("Error reading from response: %v", err)
+				return err
 			}
 		}
-		h.logger.Info("Orchestrator Handler: Finished streaming response to client.")
 		return nil
 	}
 
 	// Handle non-streaming response
-	h.logger.Info("Orchestrator Handler: Handling non-streaming response. Response type from service: %T", response)
 	// Extract response_data from provider response
 	if responseMap, ok := response.(map[string]interface{}); ok {
 		if responseData, ok := responseMap["response_data"]; ok {
