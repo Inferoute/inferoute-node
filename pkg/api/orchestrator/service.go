@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net/http"
+	"io"
 	"sort"
 	"time"
 
@@ -228,6 +228,10 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	// 7. Place holding deposit
 	holdingStartTime := time.Now()
 	if err := s.placeHoldingDeposit(ctx); err != nil {
+		// Attempt to cancel transaction if holding deposit fails
+		if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
+			s.logger.Error("Failed to cancel transaction after holding deposit failure: %v", cancelErr)
+		}
 		return nil, fmt.Errorf("failed to place holding deposit: %w", err)
 	}
 	s.logger.Info("Placing holding deposit took: %dms", time.Since(holdingStartTime).Milliseconds())
@@ -242,28 +246,27 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	var responseForFinalizeTx interface{}
 
 	if err != nil {
-		// Release holding deposit on error
-		_ = s.releaseHoldingDeposit(ctx)
-
-		// Update transaction status to 'canceled' since all providers failed
+		_ = s.releaseHoldingDeposit(ctx) // Attempt to release deposit even if provider request failed
 		if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
 			s.logger.Error("Failed to cancel transaction: %v", cancelErr)
 		} else {
-			s.logger.Info("Transaction %s canceled: all providers failed", tx.ID)
+			s.logger.Info("Transaction %s canceled: all providers failed or provider request error", tx.ID)
 		}
-
 		return nil, fmt.Errorf("failed to send request to provider: %w", err)
 	}
 
 	if req.Stream {
-		// For streaming, providerResponse is an *http.Response with the Body being the stream
-		httpResp, ok := providerResponse.(*http.Response)
-		if !ok || httpResp == nil {
+		streamBody, ok := providerResponse.(io.ReadCloser) // Corrected type assertion
+		if !ok || streamBody == nil {
 			_ = s.releaseHoldingDeposit(ctx)
-			s.logger.Error("Streaming response was not an *http.Response as expected")
-			return nil, fmt.Errorf("internal error processing stream response")
+			s.logger.Error("Streaming response from sendRequestToProvider was not an io.ReadCloser as expected, got %T", providerResponse)
+			// Attempt to cancel transaction
+			if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
+				s.logger.Error("Failed to cancel transaction after stream processing error: %v", cancelErr)
+			}
+			return nil, fmt.Errorf("internal error processing stream body")
 		}
-		capturingReader := NewCapturingReadCloser(httpResp.Body)
+		capturingReader := NewCapturingReadCloser(streamBody)
 		finalResponseForClient = capturingReader // This will be streamed to the client
 		responseForFinalizeTx = capturingReader  // This will be used to get captured data
 	} else {
@@ -271,13 +274,12 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 		responseForFinalizeTx = providerResponse
 	}
 
-	latency := time.Since(startTime).Milliseconds() // Recalculate latency if needed, or use providerRequestTime
+	latency := time.Since(startTime).Milliseconds()
 
 	// 9. Release holding deposit
 	releaseStartTime := time.Now()
 	if err := s.releaseHoldingDeposit(ctx); err != nil {
 		s.logger.Error("Failed to release holding deposit: %v", err)
-		// Continue to finalize transaction if possible, as funds might be captured
 	}
 	s.logger.Info("Releasing holding deposit took: %dms", time.Since(releaseStartTime).Milliseconds())
 
@@ -285,7 +287,6 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	finalizeStartTime := time.Now()
 	if err := s.finalizeTransaction(ctx, tx, responseForFinalizeTx, latency, successfulProvider); err != nil {
 		s.logger.Error("Failed to finalize transaction: %v", err)
-		// Note: at this point, client has received/is receiving response. Errors here are for backend processing.
 	}
 	s.logger.Info("Finalizing transaction took: %dms", time.Since(finalizeStartTime).Milliseconds())
 
