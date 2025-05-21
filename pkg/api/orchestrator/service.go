@@ -717,7 +717,7 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 	for i, provider := range providers {
 		providerStartTime := time.Now()
-		s.logger.Info("Attempting request with provider %d/%d (ID: %s)", i+1, len(providers), provider.ProviderID)
+		s.logger.Info("Orchestrator Service: Attempting request with provider %d/%d (ID: %s). Original req.Stream: %v", i+1, len(providers), provider.ProviderID, req.Stream)
 
 		// Construct full provider URL with the original path
 		providerFullURL := fmt.Sprintf("%s%s", provider.URL, originalPath)
@@ -753,7 +753,7 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 		commStartTime := time.Now()
 
 		if req.Stream {
-			s.logger.Info("Streaming request detected, using streaming function")
+			s.logger.Info("Orchestrator Service: Streaming request to provider-communication. ProviderReq: %+v", providerReq)
 
 			// Make streaming request
 			resp, err := common.MakeInternalRequestStream(
@@ -765,20 +765,22 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 			)
 			if err != nil {
 				lastErr = err // Store the error for reporting
-				s.logger.Error("Failed to make streaming request: %v", err)
+				s.logger.Error("Orchestrator Service: Failed to make streaming request to provider-communication: %v", err)
 
 				// Log that we're trying the next provider if there are more
 				if i < len(providers)-1 {
-					s.logger.Info("Trying next provider (%d/%d remaining)", len(providers)-i-1, len(providers))
+					s.logger.Info("Orchestrator Service: Trying next provider (%d/%d remaining)", len(providers)-i-1, len(providers))
 				}
 				continue
 			}
 
+			s.logger.Info("Orchestrator Service: Received streaming response from provider-communication. Status: %s, Content-Type: %s", resp.Status, resp.Header.Get("Content-Type"))
 			// For streaming requests, we'll return the response directly
 			// The handler will be responsible for streaming the response to the client
 			return resp.Body, &provider, nil
 		}
 
+		s.logger.Info("Orchestrator Service: Non-streaming request to provider-communication. ProviderReq: %+v", providerReq)
 		response, err := common.MakeInternalRequest(
 			ctx,
 			"POST",
@@ -791,25 +793,25 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 		if err != nil {
 			lastErr = err
-			s.logger.Error("Provider %s failed after %dms: %v", provider.ProviderID, commTime, err)
+			s.logger.Error("Orchestrator Service: Provider %s failed after %dms: %v", provider.ProviderID, commTime, err)
 
 			// Log that we're trying the next provider if there are more
 			if i < len(providers)-1 {
-				s.logger.Info("Trying next provider (%d/%d remaining)", len(providers)-i-1, len(providers))
+				s.logger.Info("Orchestrator Service: Trying next provider (%d/%d remaining)", len(providers)-i-1, len(providers))
 			}
 			continue // Try next provider
 		}
 
 		// If we get here, the request was successful
 		totalProviderTime := time.Since(providerStartTime).Milliseconds()
-		s.logger.Info("Request successful with provider %s (total time: %dms, comm time: %dms)",
+		s.logger.Info("Orchestrator Service: Request successful with provider %s (total time: %dms, comm time: %dms)",
 			provider.ProviderID, totalProviderTime, commTime)
 		return response, &provider, nil
 	}
 
 	// If we get here, all providers failed
-	s.logger.Error("All %d providers failed. Last error: %v", len(providers), lastErr)
-	return nil, nil, fmt.Errorf("all providers failed. Last error: %v", lastErr)
+	s.logger.Error("Orchestrator Service: All %d providers failed. Last error: %v", len(providers), lastErr)
+	return nil, nil, fmt.Errorf("Orchestrator Service: all providers failed. Last error: %v", lastErr)
 }
 
 // finalizeTransaction updates the transaction with completion details
