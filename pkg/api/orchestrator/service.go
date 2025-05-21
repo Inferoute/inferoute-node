@@ -41,7 +41,7 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	totalStartTime := time.Now()
 
 	// Add values to context that are needed throughout the request lifecycle
-	ctx = context.WithValue(ctx, common.CtxKeyInternalAPI, s.internalAPIKey)
+	ctx = context.WithValue(ctx, common.CtxKeyInternalAPIKey, s.internalAPIKey)
 	ctx = context.WithValue(ctx, common.CtxKeyLogger, s.logger)
 	ctx = context.WithValue(ctx, common.CtxKeyOriginalRequest, req)
 
@@ -278,8 +278,8 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 			if origReq, ok := bgCtx.Value(common.CtxKeyOriginalRequest).(*OpenAIRequest); ok {
 				finalizeCtx = context.WithValue(finalizeCtx, common.CtxKeyOriginalRequest, origReq)
 			}
-			if internalKey, ok := bgCtx.Value(common.CtxKeyInternalAPI).(*string); ok {
-				finalizeCtx = context.WithValue(finalizeCtx, common.CtxKeyInternalAPI, internalKey)
+			if internalKey, ok := bgCtx.Value(common.CtxKeyInternalAPIKey).(string); ok {
+				finalizeCtx = context.WithValue(finalizeCtx, common.CtxKeyInternalAPIKey, internalKey)
 			}
 			if userID, ok := bgCtx.Value(common.CtxKeyUserID).(uuid.UUID); ok {
 				finalizeCtx = context.WithValue(finalizeCtx, common.CtxKeyUserID, userID)
