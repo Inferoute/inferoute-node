@@ -228,7 +228,6 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	// 7. Place holding deposit
 	holdingStartTime := time.Now()
 	if err := s.placeHoldingDeposit(ctx); err != nil {
-		// Attempt to cancel transaction if holding deposit fails
 		if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
 			s.logger.Error("Failed to cancel transaction after holding deposit failure: %v", cancelErr)
 		}
@@ -245,7 +244,11 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	var finalResponseForClient interface{}
 
 	if err != nil {
-		_ = s.releaseHoldingDeposit(ctx) // Attempt to release deposit even if provider request failed
+		// Attempt to release deposit if provider request failed BEFORE attempting to finalize/cancel transaction
+		// This ensures that if placeHoldingDeposit succeeded, we try to release it.
+		if releaseErr := s.releaseHoldingDeposit(ctx); releaseErr != nil {
+			s.logger.Error("Failed to release holding deposit after provider error: %v", releaseErr)
+		}
 		if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
 			s.logger.Error("Failed to cancel transaction: %v", cancelErr)
 		} else {
@@ -259,7 +262,10 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	if req.Stream {
 		streamBody, ok := providerResponse.(io.ReadCloser)
 		if !ok || streamBody == nil {
-			_ = s.releaseHoldingDeposit(ctx)
+			// Attempt to release deposit if stream processing fails.
+			if releaseErr := s.releaseHoldingDeposit(ctx); releaseErr != nil {
+				s.logger.Error("Failed to release holding deposit after stream processing error: %v", releaseErr)
+			}
 			s.logger.Error("Streaming response from sendRequestToProvider was not an io.ReadCloser as expected, got %T", providerResponse)
 			if cancelErr := s.cancelTransaction(ctx, tx.ID); cancelErr != nil {
 				s.logger.Error("Failed to cancel transaction after stream processing error: %v", cancelErr)
@@ -267,18 +273,10 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 			return nil, fmt.Errorf("internal error processing stream body")
 		}
 		finalResponseForClient = NewCapturingReadCloser(streamBody, s, ctx, tx, latency, successfulProvider)
+		// finalizeTransaction (and thus releaseHoldingDeposit) will be called by CapturingReadCloser.Close()
 	} else {
 		finalResponseForClient = providerResponse
-		// For non-streaming, finalize immediately
-		// 9. Release holding deposit (moved before finalize for non-streaming)
-		releaseStartTime := time.Now()
-		if releaseErr := s.releaseHoldingDeposit(ctx); releaseErr != nil {
-			s.logger.Error("Failed to release holding deposit (non-stream): %v", releaseErr)
-			// Non-fatal, proceed to finalize
-		}
-		s.logger.Info("Releasing holding deposit took (non-stream): %dms", time.Since(releaseStartTime).Milliseconds())
-
-		// 10. Update transaction and publish payment message (non-stream)
+		// For non-streaming, finalize immediately. finalizeTransaction will handle deposit release.
 		finalizeStartTime := time.Now()
 		if finalizeErr := s.finalizeTransaction(ctx, tx, finalResponseForClient, latency, successfulProvider); finalizeErr != nil {
 			s.logger.Error("Failed to finalize transaction (non-stream): %v", finalizeErr)
@@ -816,8 +814,7 @@ func (s *Service) sendRequestToProvider(ctx context.Context, providers []Provide
 
 // finalizeTransaction updates the transaction with completion details
 func (s *Service) finalizeTransaction(ctx context.Context, tx *TransactionRecord, responseForTx interface{}, latency int64, provider *ProviderInfo) error {
-	// Release holding deposit here, as this function is now called for both streaming (at the end) and non-streaming.
-	// For streaming, this happens after the client has finished consuming the stream.
+	// Release holding deposit - this is now the single point of release after successful provider interaction.
 	if releaseErr := s.releaseHoldingDeposit(ctx); releaseErr != nil {
 		s.logger.Error("Failed to release holding deposit during finalizeTransaction: %v", releaseErr)
 		// This is non-fatal for the rest of finalizeTransaction, but should be monitored.
