@@ -56,6 +56,16 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to add stale providers check job: %w", err)
 	}
 
+	// Cleanup Cloudflare tunnels every 24 hours at midnight
+	_, err = s.cron.AddFunc("0 0 0 * * *", func() {
+		if err := s.cleanupCloudfareTunnels(ctx); err != nil {
+			s.logger.Error("Failed to cleanup Cloudflare tunnels: %v", err)
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("failed to add Cloudflare tunnel cleanup job: %w", err)
+	}
+
 	s.cron.Start()
 	s.isInitialized = true
 	s.logger.Info("Scheduler started successfully")
@@ -73,8 +83,8 @@ func (s *Service) Stop() {
 func (s *Service) makeRequest(ctx context.Context, method string, endpoint common.ServiceEndpoint, path string) error {
 
 	// Add internal key to context
-	ctx = context.WithValue(ctx, "internal_key", s.internalKey)
-	ctx = context.WithValue(ctx, "logger", s.logger)
+	ctx = context.WithValue(ctx, common.ContextKeyInternalAPIKey, s.internalKey)
+	ctx = context.WithValue(ctx, common.ContextKeyLogger, s.logger)
 
 	_, err := common.MakeInternalRequest(
 		ctx,
@@ -106,4 +116,32 @@ func (s *Service) checkStaleProviders(ctx context.Context) error {
 	s.logger.Info("Running scheduled stale providers check")
 	s.logger.Info("Stale providers endpoint: /api/health/providers/check-stale")
 	return s.makeRequest(ctx, http.MethodPost, common.ProviderHealthService, "/api/health/providers/check-stale")
+}
+
+func (s *Service) cleanupCloudfareTunnels(ctx context.Context) error {
+	s.logger.Info("Running scheduled Cloudflare tunnel cleanup (30-day default)")
+
+	// Prepare request body with default 30 days
+	requestBody := map[string]interface{}{
+		"days": 30,
+	}
+
+	// Add internal key to context
+	ctx = context.WithValue(ctx, common.ContextKeyInternalAPIKey, s.internalKey)
+	ctx = context.WithValue(ctx, common.ContextKeyLogger, s.logger)
+
+	_, err := common.MakeInternalRequest(
+		ctx,
+		http.MethodPost,
+		common.CloudflareService,
+		"/api/cloudflare/tunnel/cleanup",
+		requestBody,
+	)
+	if err != nil {
+		s.logger.Error("Cloudflare tunnel cleanup failed: %v", err)
+		return fmt.Errorf("tunnel cleanup failed: %w", err)
+	}
+
+	s.logger.Info("Cloudflare tunnel cleanup completed successfully")
+	return nil
 }

@@ -11,6 +11,22 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
+// ContextKey is a type for context keys to avoid collisions.
+type ContextKey string
+
+const (
+	// ContextKeyInternalAPIKey is the key for the internal API key in context.
+	ContextKeyInternalAPIKey ContextKey = "internal_api_key"
+	// ContextKeyLogger is the key for the logger in context.
+	ContextKeyLogger ContextKey = "logger"
+	// ContextKeyAPIKey is the key for the client's API key in context.
+	ContextKeyAPIKey ContextKey = "api_key"
+	// ContextKeyOriginalPath is the key for the original request path in context.
+	ContextKeyOriginalPath ContextKey = "original_path"
+	// ContextKeyOriginalRequest is the key for the original request body/struct in context.
+	ContextKeyOriginalRequest ContextKey = "original_request"
+)
+
 // Middleware holds all middleware dependencies
 type Middleware struct {
 	logger *Logger

@@ -32,6 +32,13 @@ type Config struct {
 	// Internal Security Configuration
 	InternalAPIKey      string `mapstructure:"internal_api_key"`
 	InternalNetworkCIDR string `mapstructure:"internal_network_cidr"`
+
+	// Cloudflare Configuration
+	CloudflareAPIKey    string `mapstructure:"cloudflare_api_key"`
+	CloudflareAccountID string `mapstructure:"cloudflare_account_id"`
+	CloudflareZoneID    string `mapstructure:"cloudflare_zone_id"`
+	CloudflareEmail     string `mapstructure:"cloudflare_email"`
+	DomainCloudflare    string `mapstructure:"domain_cloudflare"`
 }
 
 // LoadConfig reads configuration from the .env file and environment variables.
@@ -75,6 +82,23 @@ func validateConfig(cfg *Config) error {
 	if cfg.InternalAPIKey == "" {
 		return fmt.Errorf("internal API key is required")
 	}
+	// Add validation for Cloudflare keys if they are always required
+	// For now, assuming they might be optional for some services
+	// if cfg.CloudflareAPIKey == "" {
+	// 	return fmt.Errorf("cloudflare API key is required")
+	// }
+	// if cfg.CloudflareAccountID == "" {
+	// 	return fmt.Errorf("cloudflare Account ID is required")
+	// }
+	// if cfg.CloudflareZoneID == "" {
+	// 	return fmt.Errorf("cloudflare Zone ID is required")
+	// }
+	// if cfg.CloudflareEmail == "" { // Add validation if email is always required
+	// 	return fmt.Errorf("cloudflare Email is required")
+	// }
+	// if cfg.DomainCloudflare == "" {
+	// 	return fmt.Errorf("cloudflare Domain is required")
+	// }
 	return nil
 }
 

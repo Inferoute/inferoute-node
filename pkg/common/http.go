@@ -26,6 +26,7 @@ var (
 	ProviderHealthService        = ServiceEndpoint{Host: "provider-health", Port: 8084}
 	ModelPricingService          = ServiceEndpoint{Host: "model-pricing", Port: 8085}
 	TokenizerService             = ServiceEndpoint{Host: "tokenizer", Port: 8088}
+	CloudflareService            = ServiceEndpoint{Host: "cloudflare-service", Port: 8089}
 )
 
 // MakeInternalRequest makes a request to another internal service
@@ -34,12 +35,12 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 
 	// Get logger from context if available
 	var logger *Logger
-	if l, ok := ctx.Value("logger").(*Logger); ok {
+	if l, ok := ctx.Value(ContextKeyLogger).(*Logger); ok {
 		logger = l
 	}
 
 	// Get internal key from context
-	internalKey, ok := ctx.Value("internal_key").(string)
+	internalKey, ok := ctx.Value(ContextKeyInternalAPIKey).(string)
 	if !ok || internalKey == "" {
 		if logger != nil {
 			logger.Error("Internal key missing from context")
@@ -122,12 +123,12 @@ func MakeInternalRequest(ctx context.Context, method string, endpoint ServiceEnd
 func MakeInternalRequestRaw(ctx context.Context, method string, endpoint ServiceEndpoint, path string, body interface{}) ([]byte, error) {
 	// Get logger from context if available
 	var logger *Logger
-	if l, ok := ctx.Value("logger").(*Logger); ok {
+	if l, ok := ctx.Value(ContextKeyLogger).(*Logger); ok {
 		logger = l
 	}
 
 	// Get internal key from context
-	internalKey, ok := ctx.Value("internal_key").(string)
+	internalKey, ok := ctx.Value(ContextKeyInternalAPIKey).(string)
 	if !ok || internalKey == "" {
 		if logger != nil {
 			logger.Error("Internal key missing from context")
@@ -191,12 +192,12 @@ func MakeInternalRequestRaw(ctx context.Context, method string, endpoint Service
 func MakeInternalRequestStream(ctx context.Context, method string, endpoint ServiceEndpoint, path string, body interface{}) (*http.Response, error) {
 	// Get logger from context if available
 	var logger *Logger
-	if l, ok := ctx.Value("logger").(*Logger); ok {
+	if l, ok := ctx.Value(ContextKeyLogger).(*Logger); ok {
 		logger = l
 	}
 
 	// Get internal key from context
-	internalKey, ok := ctx.Value("internal_key").(string)
+	internalKey, ok := ctx.Value(ContextKeyInternalAPIKey).(string)
 	if !ok || internalKey == "" {
 		if logger != nil {
 			logger.Error("Internal key missing from context")
