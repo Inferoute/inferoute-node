@@ -1174,3 +1174,116 @@ func (s *Service) getCloudflareTunnelByName(ctx context.Context, rc *cloudflare.
 	s.logger.Warn("Tunnel with name '%s' not found in Cloudflare listing for account %s.", tunnelName, rc.Identifier)
 	return nil, ErrTunnelNotFoundByName
 }
+
+// BulkCleanupTunnels handles cleanup of inactive tunnels across all providers (internal only)
+func (s *Service) BulkCleanupTunnels(ctx context.Context, days int) (*CleanupTunnelResponse, error) {
+	s.logger.Info("BulkCleanupTunnels called with %d days threshold for all provider tunnels", days)
+
+	// Default to 30 days if not specified or invalid
+	if days <= 0 {
+		days = 30
+		s.logger.Info("Using default threshold of %d days for tunnel cleanup", days)
+	}
+
+	accountRC := cloudflare.AccountIdentifier(s.config.CloudflareAccountID)
+	zoneRC := cloudflare.ZoneIdentifier(s.config.CloudflareZoneID)
+
+	// Get all tunnels across all providers
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT tunnel_id, hostname, provider_id FROM provider_tunnels",
+	)
+	if err != nil {
+		s.logger.Error("Failed to query all provider tunnels: %v", err)
+		return &CleanupTunnelResponse{
+			Message: fmt.Sprintf("Database error: %v", err),
+		}, nil
+	}
+	defer rows.Close()
+
+	var allTunnels []struct {
+		TunnelID   string
+		Hostname   string
+		ProviderID uuid.UUID
+	}
+
+	for rows.Next() {
+		var tunnel struct {
+			TunnelID   string
+			Hostname   string
+			ProviderID uuid.UUID
+		}
+		if err := rows.Scan(&tunnel.TunnelID, &tunnel.Hostname, &tunnel.ProviderID); err != nil {
+			s.logger.Error("Failed to scan tunnel row: %v", err)
+			continue
+		}
+		allTunnels = append(allTunnels, tunnel)
+	}
+
+	var deletedTunnels []string
+	var activeTunnels []string
+	var failedCleanups []string
+	totalChecked := len(allTunnels)
+
+	s.logger.Info("Found %d total tunnels to check for cleanup", totalChecked)
+
+	for _, tunnel := range allTunnels {
+		// Get tunnel status from Cloudflare
+		status, err := s.getTunnelStatus(ctx, accountRC, tunnel.TunnelID)
+		if err != nil {
+			s.logger.Error("Failed to get tunnel status for %s: %v", tunnel.TunnelID, err)
+			failedCleanups = append(failedCleanups, fmt.Sprintf("%s (status check failed: %v)", tunnel.TunnelID, err))
+			continue
+		}
+
+		// Check if tunnel is inactive for more than specified days
+		daysSinceLastSeen := int(time.Since(status.LastSeen).Hours() / 24)
+		if daysSinceLastSeen > days {
+			s.logger.Info("Tunnel %s inactive for %d days (threshold: %d), deleting", tunnel.TunnelID, daysSinceLastSeen, days)
+
+			// Delete DNS record first
+			if err := s.deleteDNSRecordByContent(ctx, zoneRC, tunnel.Hostname, fmt.Sprintf("%s.cfargotunnel.com", tunnel.TunnelID)); err != nil {
+				s.logger.Error("Failed to delete DNS record for tunnel %s: %v", tunnel.TunnelID, err)
+				failedCleanups = append(failedCleanups, fmt.Sprintf("%s (DNS deletion failed: %v)", tunnel.TunnelID, err))
+				continue
+			}
+
+			// Delete Cloudflare tunnel
+			if err := s.deleteCloudflareTunnel(ctx, accountRC, tunnel.TunnelID); err != nil {
+				s.logger.Error("Failed to delete Cloudflare tunnel %s: %v", tunnel.TunnelID, err)
+				failedCleanups = append(failedCleanups, fmt.Sprintf("%s (tunnel deletion failed: %v)", tunnel.TunnelID, err))
+				continue
+			}
+
+			// Remove from database
+			if _, err := s.db.ExecContext(ctx, "DELETE FROM provider_tunnels WHERE tunnel_id = $1", tunnel.TunnelID); err != nil {
+				s.logger.Error("Failed to delete tunnel %s from database: %v", tunnel.TunnelID, err)
+				failedCleanups = append(failedCleanups, fmt.Sprintf("%s (DB deletion failed: %v)", tunnel.TunnelID, err))
+				continue
+			}
+
+			deletedTunnels = append(deletedTunnels, tunnel.TunnelID)
+			s.logger.Info("Successfully deleted tunnel %s", tunnel.TunnelID)
+		} else {
+			s.logger.Debug("Tunnel %s is still active (last seen %d days ago)", tunnel.TunnelID, daysSinceLastSeen)
+			activeTunnels = append(activeTunnels, tunnel.TunnelID)
+		}
+	}
+
+	totalDeleted := len(deletedTunnels)
+	message := fmt.Sprintf("Cleanup completed: checked %d tunnels, deleted %d inactive tunnels (threshold: %d days)", totalChecked, totalDeleted, days)
+
+	if len(failedCleanups) > 0 {
+		message += fmt.Sprintf(", %d cleanups failed", len(failedCleanups))
+	}
+
+	s.logger.Info(message)
+
+	return &CleanupTunnelResponse{
+		TotalChecked:   totalChecked,
+		TotalDeleted:   totalDeleted,
+		DeletedTunnels: deletedTunnels,
+		ActiveTunnels:  activeTunnels,
+		FailedCleanups: failedCleanups,
+		Message:        message,
+	}, nil
+}

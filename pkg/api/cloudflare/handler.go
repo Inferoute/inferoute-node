@@ -27,13 +27,16 @@ func NewHandler(service *Service, logger *common.Logger) *Handler {
 
 // RegisterRoutes registers the Cloudflare tunnel routes.
 func (h *Handler) RegisterRoutes(e *echo.Echo, internalKeyMiddleware echo.MiddlewareFunc) {
-	// Group for Cloudflare tunnel specific APIs
-	// All routes in this group will use the internalKeyMiddleware passed from main.go
-	g := e.Group("/api/cloudflare", internalKeyMiddleware)
+	// Group for external Cloudflare tunnel APIs (provider API key protected)
+	// These endpoints can be accessed from outside the network by provider clients
+	providerGroup := e.Group("/api/cloudflare")
+	providerGroup.POST("/tunnel/request", h.RequestTunnel)
+	providerGroup.POST("/tunnel/refresh-token", h.RefreshToken)
 
-	g.POST("/tunnel/request", h.RequestTunnel)
-	g.POST("/tunnel/refresh-token", h.RefreshToken)
-	g.POST("/tunnel/cleanup", h.CleanupTunnel)
+	// Group for internal Cloudflare tunnel APIs (internal API key protected)
+	// These endpoints can only be accessed from within the network
+	internalGroup := e.Group("/api/cloudflare", internalKeyMiddleware)
+	internalGroup.POST("/tunnel/cleanup", h.CleanupTunnel)
 }
 
 // RequestTunnel handles POST /api/cloudflare/tunnel/request
@@ -121,7 +124,7 @@ func (h *Handler) RefreshToken(c echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-// CleanupTunnel handles tunnel cleanup requests
+// CleanupTunnel handles tunnel cleanup requests (internal only)
 func (h *Handler) CleanupTunnel(c echo.Context) error {
 	req := new(CleanupTunnelRequest)
 	if err := c.Bind(req); err != nil {
@@ -131,18 +134,10 @@ func (h *Handler) CleanupTunnel(c echo.Context) error {
 		return common.ErrInvalidInput(err)
 	}
 
-	authHeader := c.Request().Header.Get("Authorization")
-	if authHeader == "" {
-		return common.ErrUnauthorized(errors.New("missing Authorization header"))
-	}
+	// No need to check Authorization header since this is protected by internal middleware
+	// and should only be called by internal services like the scheduler
 
-	splitToken := strings.Split(authHeader, "Bearer ")
-	if len(splitToken) != 2 {
-		return common.ErrUnauthorized(errors.New("invalid Authorization header format"))
-	}
-	apiKey := splitToken[1]
-
-	resp, err := h.service.CleanupTunnel(c.Request().Context(), apiKey, req.Days)
+	resp, err := h.service.BulkCleanupTunnels(c.Request().Context(), req.Days)
 	if err != nil {
 		return err
 	}
