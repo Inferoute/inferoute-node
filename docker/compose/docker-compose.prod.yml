@@ -94,6 +94,19 @@ services:
       - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
       - "traefik.http.routers.model-pricing.tls.certresolver=letsencrypt"
 
+  cloudflare-service:
+    build:
+      args:
+        ENVIRONMENT: production
+    env_file:
+      - ../../env/production.env
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cloudflare-service.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/cloudflare`)"
+      - "traefik.http.routers.cloudflare-service.entrypoints=websecure"
+      - "traefik.http.services.cloudflare-service.loadbalancer.server.port=8089"
+      - "traefik.http.routers.cloudflare-service.tls.certresolver=letsencrypt"
+
   tokenizer:
     build:
       args:

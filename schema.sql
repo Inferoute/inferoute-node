@@ -18,6 +18,7 @@ DROP TABLE IF EXISTS balances;
 DROP TABLE IF EXISTS user_settings;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS system_settings;
+DROP TABLE IF EXISTS provider_tunnels;
 
 -- Create system_settings table
 CREATE TABLE IF NOT EXISTS system_settings (
@@ -248,3 +249,15 @@ VALUES (
     42000, 42000
 )
 ON CONFLICT DO NOTHING;
+
+-- provider_tunnels table
+CREATE TABLE IF NOT EXISTS provider_tunnels (
+    provider_id UUID PRIMARY KEY REFERENCES providers(id) ON DELETE CASCADE,
+    tunnel_id STRING NOT NULL,
+    tunnel_name STRING NOT NULL,
+    hostname STRING UNIQUE NOT NULL,
+    service_url STRING NOT NULL,
+    last_token_issued TIMESTAMP DEFAULT current_timestamp(),
+    created_at TIMESTAMP DEFAULT current_timestamp(),
+    updated_at TIMESTAMP DEFAULT current_timestamp() ON UPDATE current_timestamp()
+);

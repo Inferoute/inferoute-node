@@ -152,7 +152,7 @@ services:
       dockerfile: docker/shared.Dockerfile
       args:
         SERVICE_NAME: scheduler
-        SERVICE_PORT: 8080
+        SERVICE_PORT: 8090
     container_name: scheduler
     environment:
       <<: *common-variables
@@ -203,6 +203,25 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.services.ai-applications.loadbalancer.server.port=8087"
+    restart: unless-stopped
+
+  cloudflare-service:
+    build:
+      context: ../..
+      dockerfile: docker/shared.Dockerfile
+      args:
+        SERVICE_NAME: cloudflare
+        SERVICE_PORT: 8089 # For Dockerfile EXPOSE, matches prod runtime port
+    container_name: cloudflare-service
+    environment:
+      <<: *common-variables
+      SERVER_PORT: 8089 # Actual port the app listens on in prod (and base)
+    expose:
+      - "8080" # Matches SERVER_PORT
+    depends_on:
+      - cockroachdb
+    networks:
+      - inferoute-net
     restart: unless-stopped
 
   tokenizer:

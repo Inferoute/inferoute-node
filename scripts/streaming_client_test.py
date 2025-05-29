@@ -2,15 +2,16 @@ import requests
 import json
 import time
 
-url = 'https://core.inferoute.com/v1/chat/completions'
+#url = 'https://core.inferoute.com/v1/chat/completions'
+url = 'https://vllmtest.infer.bid/v1/chat/completions'
 headers = {
     'Content-Type': 'application/json',
     'Authorization': 'Bearer sk-5d63a42ace77f48e8c39713f0c915d87',
     'Accept': 'text/event-stream'  # Explicitly accept event stream
 }
 data = {
-    #"model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-    "model": "gguf/deepseek-r1:8b",
+    "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+    #"model": "gguf/deepseek-r1:8b",
     "messages": [
       {
         "role": "system",

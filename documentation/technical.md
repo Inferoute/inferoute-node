@@ -628,9 +628,172 @@ print(response.json())
 - The service is accessible internally at port 8088
 - In production, it's accessible at `core.inferoute.com/api/tokenize`
 
-## 6. Cloudflare tunneling (to be created)
+## 6. Cloudflare Service (Go)
 
-## 5.  Provider Management Service (Go)
+- **Role:** Manages Cloudflare Tunnels for provider-clients. This service abstracts Cloudflare credentials and operations, allowing clients to securely expose their local services (e.g., Ollama instances) via a unique hostname on the `infer.bid` (production) or `dev.infer.bid` (development) domain.
+
+- **Key Functionalities:**
+  - **Tunnel Management:** Creates, updates, and manages Cloudflare Zero Trust Tunnels (`cfd_tunnel`) using manual HTTP requests to ensure compatibility with Zero Trust API requirements.
+  - **DNS Record Creation:** Automatically creates CNAME DNS records for each tunnel. The hostname format is `username-providername.DOMAIN_CLOUDFLARE`, pointing to the Cloudflare-generated tunnel ID (`TUNNEL_ID.cfargotunnel.com`).
+  - **Client Token Issuance:** Provides `cloudflared` client tokens necessary for providers to connect their local `cloudflared` daemon to the created tunnel.
+  - **API Key Validation:** Validates the client's API key by making an internal request to the Authentication service (`/api/auth/validate`) before performing any Cloudflare operations. This ensures that only authenticated and authorized clients can request or manage tunnels.
+  - **Persistence:** Stores tunnel details (`provider_id`, `tunnel_id`, `tunnel_name`, `hostname`, `service_url`, `last_token_issued`) in the `provider_tunnels` database table.
+  - **Conflict Resolution:** Handles cases where tunnels already exist in Cloudflare but not in local database by fetching existing tunnel details and storing them locally.
+  - **Selective Cleanup:** Provides separate cleanup functionality via dedicated API endpoint rather than aggressive cleanup during creation failures.
+
+- **Configuration:**
+  - Relies on environment variables for Cloudflare credentials: `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_EMAIL`.
+  - Uses `DOMAIN_CLOUDFLARE` environment variable to determine the base domain for hostnames.
+
+- **API Implementation:**
+  - All Cloudflare API interactions use manual HTTP requests instead of the official SDK to ensure compatibility with Zero Trust tunnel operations.
+  - Tunnel creation uses `POST` with `config_src: "cloudflare"` parameter for proper Zero Trust configuration.
+  - Token retrieval uses `GET` method to the `/accounts/{account_id}/cfd_tunnel/{tunnel_id}/token` endpoint.
+  - DNS operations use manual HTTP requests to avoid authentication issues.
+
+- **API Endpoints (HTTP/JSON):**
+  - All endpoints are grouped under `/api/cloudflare` and are protected by an internal API key middleware, meaning they are intended for internal service-to-service communication.
+
+  1.  **POST /api/cloudflare/tunnel/request**
+      - **Purpose:** Requests a new Cloudflare tunnel or retrieves details and a token for an existing one. If a tunnel for the provider already exists, it checks if the `ServiceURL` has changed and updates tunnel configuration accordingly.
+      - **Authentication:** Requires `Authorization: Bearer <api_key>` header
+      - **Request Body:**
+        ```json
+        {
+          "service_url": "http://localhost:11434"  // The local service URL to be exposed
+        }
+        ```
+      - **Response Body (Success):**
+        ```json
+        {
+          "token": "cloudflared-client-token",
+          "hostname": "username-providername.dev.infer.bid"
+        }
+        ```
+      - **Workflow:**
+        1. Validates API key via internal Auth service, retrieving `UserID` and `ProviderID`.
+        2. Fetches `Username` (from `users`) and `ProviderName` (from `providers`).
+        3. Checks `provider_tunnels` table for an existing tunnel for the `ProviderID`.
+        4. **If no tunnel exists in local DB:**
+           - Attempts to create a new Cloudflare tunnel via manual HTTP POST.
+           - **If tunnel name conflict occurs (HTTP 409):**
+             - Fetches existing tunnel details by name from Cloudflare.
+             - Stores the existing tunnel details in local database.
+             - Proceeds with configuration using existing tunnel.
+           - **If creation succeeds:**
+             - Creates a DNS CNAME record via manual HTTP request.
+             - Retrieves the `cloudflared` client token via manual HTTP GET.
+             - Stores tunnel details in `provider_tunnels`.
+             - Configures the tunnel's ingress rules to point to the provided `service_url`.
+           - **Note:** No aggressive cleanup - if token retrieval fails, tunnel and DNS remain for later recovery.
+        5. **If a tunnel exists:**
+           - Compares the stored `service_url` with the requested `ServiceURL`.
+           - If different, updates the tunnel's ingress rules.
+           - Retrieves the current `cloudflared` client token.
+        6. Returns the `token` and `hostname`.
+
+  2.  **POST /api/cloudflare/tunnel/refresh-token**
+      - **Purpose:** Requests a new `cloudflared` client token for an existing tunnel.
+      - **Authentication:** Requires `Authorization: Bearer <api_key>` header
+      - **Request Body:**
+        ```json
+        {
+          "refresh": true // Placeholder boolean flag
+        }
+        ```
+      - **Response Body (Success):**
+        ```json
+        {
+          "token": "new-cloudflared-client-token"
+        }
+        ```
+      - **Workflow:**
+        1. Validates API key via internal Auth service.
+        2. Fetches the `tunnel_id` for the provider from `provider_tunnels`.
+        3. Requests a new client token for that `tunnel_id` from Cloudflare via manual HTTP GET.
+        4. Returns the new `token`.
+
+  3.  **POST /api/cloudflare/tunnel/cleanup**
+      - **Purpose:** Performs bulk cleanup of inactive tunnels for the authenticated provider. Checks all tunnels owned by the provider and deletes those that have been inactive for more than the specified number of days.
+      - **Authentication:** Requires `Authorization: Bearer <api_key>` header
+      - **Request Body:**
+        ```json
+        {
+          "days": 30  // Optional: number of days (1-365), defaults to 30 if not specified
+        }
+        ```
+        Or for default 30-day cleanup:
+        ```json
+        {}
+        ```
+      - **Response Body:**
+        ```json
+        {
+          "total_checked": 5,
+          "total_deleted": 2,
+          "deleted_tunnels": [
+            "tunnel-uuid-1",
+            "tunnel-uuid-2"
+          ],
+          "active_tunnels": [
+            "tunnel-uuid-3",
+            "tunnel-uuid-4"
+          ],
+          "failed_cleanups": [
+            "tunnel-uuid-5 (status check failed)"
+          ],
+          "message": "Cleanup completed: checked 5 tunnels, deleted 2 inactive tunnels (threshold: 30 days), 1 cleanups failed"
+        }
+        ```
+      - **Workflow:**
+        1. Validates API key via internal Auth service.
+        2. Queries all tunnels owned by the authenticated provider from `provider_tunnels` table.
+        3. **For each tunnel:**
+           - Gets tunnel status from Cloudflare via manual HTTP GET to `/accounts/{account_id}/cfd_tunnel/{tunnel_id}`.
+           - Analyzes tunnel connections to determine last activity time.
+           - **If tunnel inactive for more than specified days:**
+             - Deletes DNS record via manual HTTP requests.
+             - Deletes Cloudflare tunnel via manual HTTP DELETE.
+             - Removes tunnel record from local database.
+             - Adds to `deleted_tunnels` list.
+           - **If tunnel still active:**
+             - Adds to `active_tunnels` list.
+           - **If status check or deletion fails:**
+             - Adds to `failed_cleanups` list with error reason.
+        4. Returns comprehensive cleanup report with statistics and detailed lists.
+      - **Features:**
+        - **Bulk Processing:** Handles all provider tunnels in one operation
+        - **Flexible Thresholds:** 1-365 days supported, defaults to 30 days
+        - **Error Resilience:** Continues processing even if individual tunnels fail
+        - **Detailed Reporting:** Shows exactly what happened to each tunnel
+        - **Provider Isolation:** Only processes tunnels owned by authenticated provider
+
+- **Error Handling:**
+  - Returns appropriate HTTP status codes and error messages for failures.
+  - **No aggressive cleanup** during tunnel creation - tunnels and DNS records persist even if token retrieval fails.
+  - Implements conflict resolution for existing tunnels by fetching details from Cloudflare.
+  - Comprehensive logging for all Cloudflare API interactions.
+
+- **Security Features:**
+  - All API endpoints require valid provider API key authentication.
+  - Internal API key protection for service-to-service communication.
+  - Secure tunnel token generation and distribution.
+  - Provider-specific tunnel isolation (providers can only manage their own tunnels).
+
+- **Key Improvements:**
+  - **Manual HTTP Requests:** All Cloudflare operations use manual HTTP requests to ensure compatibility with Zero Trust tunnel APIs.
+  - **Conflict Resolution:** Gracefully handles cases where tunnels exist in Cloudflare but not in local database.
+  - **Bulk Cleanup API:** Provides comprehensive cleanup functionality that processes all provider tunnels in one operation with flexible day thresholds (1-365 days).
+  - **Error-Resilient Processing:** Cleanup operations continue even if individual tunnels fail, providing detailed failure reporting.
+  - **Detailed Status Reporting:** Cleanup responses include comprehensive statistics, tunnel lists, and specific reasons for all actions taken.
+
+- **Deployment:**
+  - Runs as a Go microservice in a Docker container.
+  - Listens on port `8088` in development and `8080` in production.
+  - Integrated into `docker-compose.yml`, `docker-compose.dev.yml`, and `docker-compose.prod.yml`.
+  - Requires Cloudflare credentials and internal API key configuration.
+
+## 7.  Provider Management Service (Go)
 
  - **Role:** Provides APIs for providers to manage their models, availability status, and health reporting. Acts as the entry point for provider health updates which are then published to RabbitMQ for processing by the provider-health service
 
@@ -706,7 +869,7 @@ print(response.json())
       - Success status and message
 
 
-## 6.  Provider Communication Service (Go) - DONE!!!!
+## 8.  Provider Communication Service (Go) - DONE!!!!
 
 - **Role:** Dispatches consumer requests (with associated HMACs) to providers and collects responses. Also provides an API for providers to validate HMACs.
 
@@ -778,7 +941,7 @@ print(response.json())
   Repsonse from provider is prited to console. We need to send to Orchestrator once build.
 
 
-## 6.  Payment Processing Service (Go) with RabbitMQ 
+## 9. Payment Processing Service (Go) with RabbitMQ 
 
 -  **Role:** Handles the asynchronous financial operations after the main workflow is complete.
 
@@ -804,14 +967,14 @@ print(response.json())
 
 - **Technology:** Uses RabbitMQ for message queuing.
 
-## 7.Consumer management service services (GO)
+## 10. Consumer management service services (GO)
 
 -  **Role:** Provides API to consumers.
 	- **Consumers** can check their spend based on keys
 	- **Providers** can check their profit based on models and time (need to implement in provider-management)
 
 
-## 8. Provider-Health (GO) - DONE!!!!!!
+## 11. Provider-Health (GO) - DONE!!!!!!
 
 **Role:** Processes health updates from providers via RabbitMQ, maintains provider health status, and provides APIs for health-related operations.
 The service has several core components:
@@ -897,7 +1060,7 @@ Note: The periodic checking of stale providers and tier updates has been moved t
 We will need some Cloud cron thing to run the check for stale providers and update tiers from externally.
 
 
-## 9. Model Pricing Service (GO)
+## 12. Model Pricing Service (GO)
 
 - **Role:** Manages and provides access to average pricing information for all models across providers. Helps consumers understand typical costs before making requests. Also maintains default pricing for unknown models and collects time-series pricing data for candlestick charts.
 
@@ -999,7 +1162,7 @@ We will need some Cloud cron thing to run the check for stale providers and upda
   - Collects and stores time-series pricing data for visualization in candlestick charts
   - Exposes internal API for scheduled price updates
 
-## 10. AI Applications Service (GO)
+## 13. AI Applications Service (GO)
 
 - **Role:** Provides an OpenAI-compatible API endpoint that returns the top 10 models by transaction count in a format matching OpenAI's `/v1/models` endpoint.
 
@@ -1042,18 +1205,18 @@ We will need some Cloud cron thing to run the check for stale providers and upda
   - Proper error handling with standard HTTP codes
   - Metrics tracking for endpoint usage
 
-## 11. CockroachDB - DONE!!!!
+## 14. CockroachDB - DONE!!!!
 
 -  **Role:** Distributed data store for users, API keys, HMACs, provider data, and transaction records.
 
-## 12. Logging and Monitoring Service - NOT DONE
+## 15. Logging and Monitoring Service - NOT DONE
 
 -  **Role:** Capeture and store logs from all of our services.
 
 Use OpenTelemetry to capture logs from all of our services and send to datadog
 OR use this - https://www.multiplayer.app/docs/  Auto-documentation and provides network map
 
-## 13. Scheduler Service (GO)
+## 16. Scheduler Service (GO)
 
 - **Role:** Manages and executes periodic tasks across the system. Ensures critical maintenance and update operations are performed at regular intervals.
 
@@ -1107,7 +1270,7 @@ OR use this - https://www.multiplayer.app/docs/  Auto-documentation and provides
   - Runs on the central node
   - Supports horizontal scaling if needed
 
-## 14. Provider Client (GO)
+## 17. Provider Client (GO)
 
 - Should be applied via Docker - make sure docker is small and efficient as can be.
 - Documentation to run client on your own (this will include the cron jon to send health updates)
@@ -1128,7 +1291,7 @@ https://github.com/kesor/ollama-proxy/blob/main/Dockerfile
 	- Save the utilization in our health check as this will give us some usage stats overtime.
 
 
-### 13. Autoamatic routing based on request.
+### 18. Autoamatic routing based on request.
 
 https://github.com/lm-sys/RouteLLM
 https://arxiv.org/abs/2406.18665
@@ -1136,7 +1299,7 @@ https://arxiv.org/abs/2406.18665
 - See if we can implement this so that users don't specify a Model and we choose the best/cheapest model based on the request.
 - Allow a user to set a strong model and a weaker model and we can use this to route requests, based on their incoming text.
 
-### 14. Documentation using fern
+### 19. Documentation using fern
 
 Rightbrain Petes new company uses fern and the documentation looks so good.
 Use fern - book a demo.
@@ -1322,54 +1485,3 @@ POST /api/auth/users
     "api_url": "http://provider-endpoint:8080"
 }
 ```
-
-The presence of the `api_url` field determines whether the user is created as a provider or consumer. After user creation:
-- Consumers can set their price constraints and create API keys
-- Providers can register models, set pricing, and manage their health status
-
-# Model Naming Considerations
-
-## The ":latest" Suffix Issue
-
-Our system handles model names that may be stored with or without a ":latest" suffix. For example, the same model might be referenced as either "llama3.2" or "llama3.2:latest" in different contexts:
-
-- When models are pushed from providers, they may contain the ":latest" suffix in the model name
-- When providers respond to users in JSON responses, they might send the model name without the ":latest" suffix
-- Transactions might reference either form of the model name
-
-This discrepancy can cause lookup failures, particularly in the payment processing service, which needs to match transaction model names against provider_models records. 
-
-### Solution
-
-To address this issue, our payment processing service implements a two-step lookup approach:
-
-1. First query using the exact model name as provided
-2. If no results are found, fall back to querying with ":latest" suffix appended
-
-This pattern is implemented in several places:
-- When checking for pricing cheating
-- When retrieving provider model statistics
-- When updating provider model statistics
-
-Example implementation:
-```go
-// Try exact match first
-err := tx.QueryRowContext(ctx, `
-    SELECT id, updated_at 
-    FROM provider_models 
-    WHERE provider_id = $1 AND model_name = $2`,
-    providerID, modelName,
-).Scan(&providerModelID, &modelUpdatedAt)
-
-// Fall back to ":latest" suffix if no rows found
-if err == sql.ErrNoRows {
-    err = tx.QueryRowContext(ctx, `
-        SELECT id, updated_at 
-        FROM provider_models 
-        WHERE provider_id = $1 AND model_name = $2`,
-        providerID, modelName+":latest",
-    ).Scan(&providerModelID, &modelUpdatedAt)
-}
-```
-
-This approach ensures that transactions can be processed successfully regardless of which form of the model name is used.

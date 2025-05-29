@@ -77,6 +77,16 @@ services:
       - "traefik.http.routers.model-pricing.entrypoints=web"
       - "traefik.http.services.model-pricing.loadbalancer.server.port=8085"
 
+  cloudflare-service:
+    build:
+      args:
+        ENVIRONMENT: development 
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cloudflare-service.rule=(Host(`localhost`, `traefik`) || HostRegexp(`{ip:192\\.168\\.[0-9]+\\.[0-9]+}`)) && PathPrefix(`/api/cloudflare`)"
+      - "traefik.http.routers.cloudflare-service.entrypoints=web"
+      - "traefik.http.services.cloudflare-service.loadbalancer.server.port=8089" # Traefik routes to internal dev port
+
   tokenizer:
     build:
       args:
