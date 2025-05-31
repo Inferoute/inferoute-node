@@ -99,7 +99,7 @@ services:
       args:
         ENVIRONMENT: production
     env_file:
-      - ../../env/production.env
+      - ../env/production.env
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.cloudflare-service.rule=Host(`core.inferoute.com`) && PathPrefix(`/api/cloudflare`)"
