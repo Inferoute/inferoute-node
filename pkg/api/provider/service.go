@@ -45,7 +45,7 @@ func (s *Service) AddModel(ctx context.Context, providerID uuid.UUID, req AddMod
 		var exists bool
 		err := tx.QueryRowContext(ctx,
 			`SELECT EXISTS(
-				SELECT 1 FROM users 
+				SELECT 1 FROM providers 
 				WHERE id = $1
 			)`,
 			providerID,
@@ -98,7 +98,10 @@ func (s *Service) AddModel(ctx context.Context, providerID uuid.UUID, req AddMod
 func (s *Service) ListModels(ctx context.Context, providerID uuid.UUID) (*ListModelsResponse, error) {
 	query := `
 		WITH provider_info AS (
-			SELECT username FROM users WHERE id = $1
+			SELECT u.username 
+			FROM providers p
+			JOIN users u ON u.id = p.user_id
+			WHERE p.id = $1
 		)
 		SELECT 
 			pi.username,
