@@ -303,7 +303,7 @@ func (s *Service) UpdateAPIURL(ctx context.Context, providerID uuid.UUID, apiURL
 	return nil
 }
 
-// UpdateProviderInfo updates the provider information with GPU and ngrok data
+// UpdateProviderInfo updates the provider information with GPU and cloudflare data
 func (s *Service) UpdateProviderInfo(ctx context.Context, providerID uuid.UUID, req ProviderHealthPushRequest) error {
 	query := `
 		UPDATE providers 
@@ -320,9 +320,9 @@ func (s *Service) UpdateProviderInfo(ctx context.Context, providerID uuid.UUID, 
 		WHERE id = $1
 	`
 
-	var ngrokURL *string
-	if req.Ngrok != nil && req.Ngrok.URL != "" {
-		ngrokURL = &req.Ngrok.URL
+	var cloudflareURL *string
+	if req.Cloudflare != nil && req.Cloudflare.URL != "" {
+		cloudflareURL = &req.Cloudflare.URL
 	}
 
 	var productName, driverVersion, cudaVersion *string
@@ -355,7 +355,7 @@ func (s *Service) UpdateProviderInfo(ctx context.Context, providerID uuid.UUID, 
 
 	_, err := s.db.ExecContext(ctx, query,
 		providerID,
-		ngrokURL,
+		cloudflareURL,
 		productName,
 		driverVersion,
 		cudaVersion,

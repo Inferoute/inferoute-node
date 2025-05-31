@@ -48,8 +48,8 @@ type GPUInfo struct {
 	IsBusy        bool   `json:"is_busy"`
 }
 
-// NgrokInfo represents ngrok tunnel information in the health push data
-type NgrokInfo struct {
+// CloudflareInfo represents cloudflare tunnel information in the health push data
+type CloudflareInfo struct {
 	URL string `json:"url"`
 }
 
@@ -58,7 +58,7 @@ type ProviderHealthMessage struct {
 	APIKey       string                    `json:"api_key"`
 	Models       []ProviderHealthPushModel `json:"models"`
 	GPU          *GPUInfo                  `json:"gpu,omitempty"`
-	Ngrok        *NgrokInfo                `json:"ngrok,omitempty"`
+	Cloudflare   *CloudflareInfo           `json:"cloudflare,omitempty"`
 	ProviderType string                    `json:"provider_type,omitempty"`
 }
 

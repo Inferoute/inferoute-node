@@ -101,8 +101,8 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 	}
 
 	return s.db.ExecuteTx(ctx, func(tx *sql.Tx) error {
-		// Update provider information if GPU or Ngrok data is provided
-		if msg.GPU != nil || msg.Ngrok != nil || msg.ProviderType != "" {
+		// Update provider information if GPU or Cloudflare data is provided
+		if msg.GPU != nil || msg.Cloudflare != nil || msg.ProviderType != "" {
 			query := `
 				UPDATE providers 
 				SET 
@@ -118,9 +118,9 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 				WHERE id = $1
 			`
 
-			var ngrokURL *string
-			if msg.Ngrok != nil && msg.Ngrok.URL != "" {
-				ngrokURL = &msg.Ngrok.URL
+			var cloudflareURL *string
+			if msg.Cloudflare != nil && msg.Cloudflare.URL != "" {
+				cloudflareURL = &msg.Cloudflare.URL
 			}
 
 			var productName, driverVersion, cudaVersion *string
@@ -154,7 +154,7 @@ func (s *Service) processHealthCheck(ctx context.Context, msg ProviderHealthMess
 
 			_, err := tx.ExecContext(ctx, query,
 				providerID,
-				ngrokURL,
+				cloudflareURL,
 				productName,
 				driverVersion,
 				cudaVersion,

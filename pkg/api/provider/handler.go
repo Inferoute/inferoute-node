@@ -215,12 +215,12 @@ func (h *Handler) PushHealth(c echo.Context) error {
 		APIKey:       apiKey,
 		Models:       req.Data,
 		GPU:          req.GPU,
-		Ngrok:        req.Ngrok,
+		Cloudflare:   req.Cloudflare,
 		ProviderType: req.ProviderType,
 	}
 
-	// Update provider information if GPU or Ngrok data is provided
-	if req.GPU != nil || req.Ngrok != nil || req.ProviderType != "" {
+	// Update provider information if GPU or Cloudflare data is provided
+	if req.GPU != nil || req.Cloudflare != nil || req.ProviderType != "" {
 		if err := h.service.UpdateProviderInfo(c.Request().Context(), providerID, req); err != nil {
 			h.logger.Error("Failed to update provider info: %v", err)
 			// Continue with health update even if provider info update fails
