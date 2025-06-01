@@ -41,8 +41,8 @@ func (s *Service) ProcessRequest(ctx context.Context, consumerID uuid.UUID, req 
 	totalStartTime := time.Now()
 
 	// Add internal key to context
-	ctx = context.WithValue(ctx, "internal_key", s.internalAPIKey)
-	ctx = context.WithValue(ctx, "logger", s.logger)
+	ctx = context.WithValue(ctx, common.ContextKeyInternalAPIKey, s.internalAPIKey)
+	ctx = context.WithValue(ctx, common.ContextKeyLogger, s.logger)
 	ctx = context.WithValue(ctx, "original_request", req) // Store original request in context
 
 	// 0 Add max_tokens and temperature to context if they exist in the request
