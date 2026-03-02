@@ -18,8 +18,8 @@ make_request() {
     local data=$2
     local retry_count=0
     
-    echo "\nMaking request to: $url"
-    echo "Request body: $data"
+    echo "\nMaking request to: $url" >&2
+    echo "Request body: $data" >&2
     
     while [ $retry_count -lt $MAX_RETRIES ]; do
         response=$(docker exec -i api-testing curl -s --location "$url" \
@@ -30,21 +30,22 @@ make_request() {
         # Check if response contains error about missing auth header or not found
         if echo "$response" | grep -q "missing authorization header\|Not Found"; then
             retry_count=$((retry_count + 1))
-            echo "Attempt $retry_count/$MAX_RETRIES failed. Retrying in 2 seconds..."
+            echo "Attempt $retry_count/$MAX_RETRIES failed. Retrying in 2 seconds..." >&2
             sleep 2
             continue
         fi
         
         # If we get here, we have a valid response
-        echo "\nServer response:"
-        echo "$response" | jq '.' || echo "$response"
-        echo "----------------------------------------"
+        echo "\nServer response:" >&2
+        echo "$response" | jq '.' >&2 || echo "$response" >&2
+        echo "----------------------------------------" >&2
         sleep 1
+        # Only return the clean JSON response
         echo "$response"
         return
     done
     
-    echo "Failed after $MAX_RETRIES attempts"
+    echo "Failed after $MAX_RETRIES attempts" >&2
     exit 1
 }
 

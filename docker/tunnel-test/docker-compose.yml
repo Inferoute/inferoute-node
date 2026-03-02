@@ -1,0 +1,55 @@
+services:
+  tunnel-test-1:
+    build: .
+    environment:
+      - BASE_URL=http://auth:8081
+      - CLOUDFLARE_URL=http://cloudflare-service:8089
+      - USERNAME=tunnel_test_1
+    networks:
+      - default
+    restart: unless-stopped
+    
+  tunnel-test-2:
+    build: .
+    environment:
+      - BASE_URL=http://auth:8081
+      - CLOUDFLARE_URL=http://cloudflare-service:8089
+      - USERNAME=tunnel_test_2
+    networks:
+      - default
+    restart: unless-stopped
+    
+  tunnel-test-3:
+    build: .
+    environment:
+      - BASE_URL=http://auth:8081
+      - CLOUDFLARE_URL=http://cloudflare-service:8089
+      - USERNAME=tunnel_test_3
+    networks:
+      - default
+    restart: unless-stopped
+    
+  tunnel-test-4:
+    build: .
+    environment:
+      - BASE_URL=http://auth:8081
+      - CLOUDFLARE_URL=http://cloudflare-service:8089
+      - USERNAME=tunnel_test_4
+    networks:
+      - default
+    restart: unless-stopped
+    
+  tunnel-test-5:
+    build: .
+    environment:
+      - BASE_URL=http://auth:8081
+      - CLOUDFLARE_URL=http://cloudflare-service:8089
+      - USERNAME=tunnel_test_5
+    networks:
+      - default
+    restart: unless-stopped
+    
+networks:
+  default:
+    external: true
+    name: inferoute-net
