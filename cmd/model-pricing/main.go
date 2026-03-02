@@ -13,12 +13,10 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
-	"github.com/google/uuid"
 	"github.com/sentnl/inferoute-node/internal/config"
 	"github.com/sentnl/inferoute-node/internal/db"
 	"github.com/sentnl/inferoute-node/pkg/api/model_pricing"
 	"github.com/sentnl/inferoute-node/pkg/common"
-	"github.com/sentnl/inferoute-node/pkg/common/apikey"
 )
 
 func main() {
@@ -83,10 +81,9 @@ func main() {
 	logger.Info("Registering internal route: POST /api/model-pricing/update-pricing-data")
 	internalGroup.POST("/update-pricing-data", handler.UpdateModelPricingData)
 
-	// Provider authenticated routes
-	providerGroup := api.Group("/model-pricing", func(next echo.HandlerFunc) echo.HandlerFunc {
+	// Authenticated routes (supports both provider and consumer API keys)
+	authenticatedGroup := api.Group("/model-pricing", func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			// Skip provider auth for internal routes
 			if c.Request().URL.Path == "/api/model-pricing/update-pricing-data" {
 				return next(c)
 			}
@@ -96,58 +93,43 @@ func main() {
 				return common.ErrUnauthorized(fmt.Errorf("missing authorization header"))
 			}
 
-			// Extract API key from Bearer token
 			parts := strings.Split(auth, " ")
 			if len(parts) != 2 || parts[0] != "Bearer" {
 				return common.ErrUnauthorized(fmt.Errorf("invalid authorization format"))
 			}
 
-			plainTextKey := strings.TrimSpace(parts[1])
-			if plainTextKey == "" {
+			apiKey := strings.TrimSpace(parts[1])
+			if apiKey == "" {
 				return common.ErrUnauthorized(fmt.Errorf("empty API key"))
 			}
 
-			// Query all API keys and compare hashes
-			var providerID uuid.UUID
-			rows, err := database.QueryContext(c.Request().Context(),
-				`SELECT p.id, ak.api_key
-				FROM providers p
-				JOIN api_keys ak ON ak.provider_id = p.id
-				WHERE ak.is_active = true`)
+			ctx := context.WithValue(c.Request().Context(), common.ContextKeyInternalAPIKey, cfg.InternalAPIKey)
+			ctx = context.WithValue(ctx, common.ContextKeyLogger, logger)
+
+			resp, err := common.MakeInternalRequest(
+				ctx,
+				"POST",
+				common.AuthService,
+				"/api/auth/validate",
+				map[string]string{"api_key": apiKey},
+			)
 			if err != nil {
-				return common.ErrInternalServer(fmt.Errorf("error querying API keys: %w", err))
-			}
-			defer rows.Close()
-
-			found := false
-			for rows.Next() {
-				var id uuid.UUID
-				var hashedKey string
-				if err := rows.Scan(&id, &hashedKey); err != nil {
-					return common.ErrInternalServer(fmt.Errorf("error scanning API key: %w", err))
-				}
-
-				if apikey.CompareAPIKey(plainTextKey, hashedKey) {
-					providerID = id
-					found = true
-					break
-				}
+				return common.ErrInternalServer(fmt.Errorf("error validating API key: %w", err))
 			}
 
-			if !found {
+			if !resp["valid"].(bool) {
 				return common.ErrUnauthorized(fmt.Errorf("invalid API key"))
 			}
 
-			// Set provider ID in context
-			c.Set("provider_id", providerID)
+			c.Set("user_type", resp["user_type"].(string))
 			return next(c)
 		}
 	})
 
-	// Register provider routes
-	logger.Info("Registering provider-authenticated routes")
-	providerGroup.POST("/get-prices", handler.GetModelPrices)
-	providerGroup.GET("/pricing-data/:model_name", handler.GetModelPricingData)
+	// Register authenticated routes
+	logger.Info("Registering authenticated routes")
+	authenticatedGroup.POST("/get-prices", handler.GetModelPrices)
+	authenticatedGroup.GET("/pricing-data/:model_name", handler.GetModelPricingData)
 
 	// Start the scheduler to update pricing data every minute
 	ctx, cancel := context.WithCancel(context.Background())
