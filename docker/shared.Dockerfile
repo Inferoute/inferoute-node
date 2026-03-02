@@ -1,4 +1,4 @@
-FROM golang:alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install necessary build tools
 RUN apk add --no-cache git ca-certificates tzdata
@@ -23,7 +23,7 @@ ARG SERVICE_PORT
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /go/bin/app ./cmd/${SERVICE_NAME}
 
 # Use a small alpine image for the final image
-FROM alpine:3.19
+FROM alpine:3.18
 
 # Install necessary runtime packages
 RUN apk --no-cache add ca-certificates tzdata
