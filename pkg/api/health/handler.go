@@ -27,26 +27,16 @@ func NewHandler(sqlDB *sql.DB, logger *common.Logger) *Handler {
 	}
 }
 
-// Register registers the provider health routes
+// Register registers the provider health routes. All are internal-only (orchestrator, scheduler, dev with key).
 func (h *Handler) Register(e *echo.Echo) {
-	g := e.Group("/api/health")
+	g := e.Group("/api/health", common.InternalOnly())
 
-	// Get healthy providers
 	g.GET("/providers/healthy", h.GetHealthyNodes)
-
-	// Get provider health status
 	g.GET("/provider/:provider_id", h.GetProviderHealth)
-
-	// Filter for Healthy providers
 	g.GET("/providers/filter", h.FilterProviders)
-
-	// Filter providers by user
 	g.GET("/providers/user", h.FilterUserProviders)
-
-	// Manual triggers - internal only
-	internalGroup := g.Group("/providers", common.InternalOnly())
-	internalGroup.POST("/update-tiers", h.TriggerUpdateTiers)
-	internalGroup.POST("/check-stale", h.TriggerCheckStale)
+	g.POST("/providers/update-tiers", h.TriggerUpdateTiers)
+	g.POST("/providers/check-stale", h.TriggerCheckStale)
 }
 
 // @Summary Get all healthy nodes
@@ -261,6 +251,9 @@ func (h *Handler) FilterProviders(c echo.Context) error {
 		return common.NewInternalError("error iterating results", err)
 	}
 
+	if providers == nil {
+		providers = []FilterProvidersResponse{}
+	}
 	return c.JSON(http.StatusOK, providers)
 }
 
