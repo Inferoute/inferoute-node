@@ -71,4 +71,4 @@ docker-compose.override.yml
 
 # Project specific directories
 .specstory/
-go.mdc
+go.mdc/orchestrator
