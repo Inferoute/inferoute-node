@@ -3,6 +3,7 @@
 name: API docs
 
 on:
+  workflow_dispatch: {}  # Run manually from Actions tab (choose branch to test)
   push:
     branches: [main]
     paths:
