@@ -1,3 +1,9 @@
+// @title Inferoute API
+// @version 1.0
+// @description API for Inferoute orchestration and providers
+// @host api.inferoute.com
+// @BasePath /
+// @schemes https http
 package main
 
 import (
@@ -19,6 +25,9 @@ import (
 	"github.com/sentnl/inferoute-node/pkg/common"
 	"github.com/sentnl/inferoute-node/pkg/common/apikey"
 	"github.com/sentnl/inferoute-node/pkg/rabbitmq"
+
+	_ "github.com/sentnl/inferoute-node/docs"
+	echoswagger "github.com/swaggo/echo-swagger"
 )
 
 // CustomValidator is a custom validator for Echo
@@ -147,6 +156,7 @@ func main() {
 
 	// Register routes
 	handler.RegisterRoutes(e)
+	e.GET("/swagger/*", echoswagger.WrapHandler)
 
 	// Start server
 	go func() {

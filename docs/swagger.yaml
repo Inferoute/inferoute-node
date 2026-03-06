@@ -1,0 +1,1362 @@
+basePath: /
+definitions:
+  ai_applications.ModelDetail:
+    properties:
+      created:
+        type: integer
+      id:
+        type: string
+      max_model_len:
+        type: integer
+      object:
+        type: string
+      owned_by:
+        type: string
+      parent: {}
+      root:
+        type: string
+    type: object
+  ai_applications.ModelResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/ai_applications.ModelDetail'
+        type: array
+      object:
+        type: string
+    type: object
+  auth.Balance:
+    properties:
+      available_amount:
+        type: number
+      created_at:
+        type: string
+      held_amount:
+        type: number
+      id:
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  auth.Consumer:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      max_input_price_tokens:
+        type: number
+      max_output_price_tokens:
+        type: number
+      name:
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  auth.CreateAPIKeyRequest:
+    properties:
+      consumer_id:
+        type: string
+      description:
+        type: string
+      provider_id:
+        type: string
+      type:
+        enum:
+        - consumer
+        - provider
+        type: string
+      user_id:
+        type: string
+    required:
+    - description
+    - type
+    - user_id
+    type: object
+  auth.CreateAPIKeyResponse:
+    properties:
+      api_key:
+        type: string
+      consumer_id:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      provider_id:
+        type: string
+    type: object
+  auth.CreateEntityRequest:
+    properties:
+      api_url:
+        description: Only for providers
+        type: string
+      name:
+        type: string
+      type:
+        enum:
+        - consumer
+        - provider
+        type: string
+      user_id:
+        type: string
+    required:
+    - name
+    - type
+    - user_id
+    type: object
+  auth.CreateEntityResponse:
+    properties:
+      consumer:
+        $ref: '#/definitions/auth.Consumer'
+      provider:
+        $ref: '#/definitions/auth.Provider'
+    type: object
+  auth.CreateUserRequest:
+    properties:
+      username:
+        type: string
+    required:
+    - username
+    type: object
+  auth.CreateUserResponse:
+    properties:
+      user:
+        $ref: '#/definitions/auth.User'
+    type: object
+  auth.HoldDepositRequest:
+    properties:
+      amount:
+        minimum: 0
+        type: number
+      user_id:
+        type: string
+    required:
+    - amount
+    - user_id
+    type: object
+  auth.HoldDepositResponse:
+    properties:
+      balance:
+        $ref: '#/definitions/auth.Balance'
+      success:
+        type: boolean
+    type: object
+  auth.Provider:
+    properties:
+      api_url:
+        type: string
+      created_at:
+        type: string
+      health_status:
+        type: string
+      id:
+        type: string
+      is_available:
+        type: boolean
+      last_health_check:
+        type: string
+      name:
+        type: string
+      paused:
+        type: boolean
+      tier:
+        type: integer
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  auth.ReleaseHoldRequest:
+    properties:
+      amount:
+        minimum: 0
+        type: number
+      user_id:
+        type: string
+    required:
+    - amount
+    - user_id
+    type: object
+  auth.ReleaseHoldResponse:
+    properties:
+      balance:
+        $ref: '#/definitions/auth.Balance'
+      success:
+        type: boolean
+    type: object
+  auth.User:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      updated_at:
+        type: string
+      username:
+        type: string
+    type: object
+  auth.ValidateAPIKeyRequest:
+    properties:
+      api_key:
+        type: string
+    required:
+    - api_key
+    type: object
+  auth.ValidateAPIKeyResponse:
+    properties:
+      available_balance:
+        type: number
+      consumer_id:
+        type: string
+      held_balance:
+        type: number
+      provider_id:
+        type: string
+      user_id:
+        type: string
+      user_type:
+        type: string
+      valid:
+        type: boolean
+    type: object
+  cloudflare.RefreshTokenRequest:
+    properties:
+      refresh:
+        description: Kept for now, can be removed if truly unused.
+        type: boolean
+    type: object
+  cloudflare.RefreshTokenResponse:
+    properties:
+      token:
+        type: string
+    type: object
+  cloudflare.RequestTunnelRequest:
+    properties:
+      service_url:
+        type: string
+    required:
+    - service_url
+    type: object
+  cloudflare.RequestTunnelResponse:
+    properties:
+      hostname:
+        type: string
+      token:
+        type: string
+    type: object
+  github_com_sentnl_inferoute-node_pkg_common.ErrorResponse:
+    properties:
+      error:
+        type: string
+      message:
+        type: string
+    type: object
+  health.FilterProvidersResponse:
+    properties:
+      api_url:
+        type: string
+      average_tps:
+        type: number
+      health_status:
+        type: string
+      input_cost:
+        type: number
+      model_name:
+        type: string
+      output_cost:
+        type: number
+      provider_id:
+        type: string
+      tier:
+        type: integer
+      username:
+        type: string
+    type: object
+  health.HealthyNodeResponse:
+    properties:
+      latency_ms:
+        type: integer
+      provider_id:
+        type: string
+      tier:
+        type: integer
+      username:
+        type: string
+    type: object
+  health.ProviderHealthResponse:
+    properties:
+      health_status:
+        type: string
+      is_available:
+        type: boolean
+      last_health_check:
+        type: string
+      latency_ms:
+        type: integer
+      provider_id:
+        type: string
+      tier:
+        type: integer
+      username:
+        type: string
+    type: object
+  health.TriggerHealthChecksResponse:
+    properties:
+      providers_updated:
+        type: integer
+      tiers_updated:
+        type: integer
+    type: object
+  pkg_api_orchestrator.Message:
+    properties:
+      content:
+        description: Can be string, array, or map
+      role:
+        enum:
+        - system
+        - user
+        - assistant
+        type: string
+    required:
+    - content
+    - role
+    type: object
+  pkg_api_orchestrator.OpenAIRequest:
+    properties:
+      frequency_penalty:
+        type: number
+      logit_bias:
+        additionalProperties:
+          format: float64
+          type: number
+        type: object
+      max_tokens:
+        type: integer
+      messages:
+        items:
+          $ref: '#/definitions/pkg_api_orchestrator.Message'
+        type: array
+      model:
+        type: string
+      "n":
+        type: integer
+      presence_penalty:
+        type: number
+      prompt:
+        type: string
+      sort:
+        enum:
+        - cost
+        - throughput
+        type: string
+      stop:
+        items:
+          type: string
+        type: array
+      stream:
+        type: boolean
+      temperature:
+        type: number
+      top_p:
+        type: number
+      user:
+        type: string
+    required:
+    - model
+    type: object
+  provider.AddModelRequest:
+    properties:
+      input_price_tokens:
+        minimum: 0
+        type: number
+      model_name:
+        type: string
+      output_price_tokens:
+        minimum: 0
+        type: number
+      service_type:
+        allOf:
+        - $ref: '#/definitions/provider.ServiceType'
+        enum:
+        - ollama
+        - exolabs
+        - llama_cpp
+        - vllm
+    required:
+    - input_price_tokens
+    - model_name
+    - output_price_tokens
+    - service_type
+    type: object
+  provider.CloudflareInfo:
+    properties:
+      url:
+        type: string
+    type: object
+  provider.GPUInfo:
+    properties:
+      cuda_version:
+        type: string
+      driver_version:
+        type: string
+      gpu_count:
+        type: integer
+      is_busy:
+        type: boolean
+      memory_free:
+        type: integer
+      memory_total:
+        type: integer
+      memory_used:
+        type: integer
+      product_name:
+        type: string
+      utilization:
+        type: integer
+      uuid:
+        type: string
+    type: object
+  provider.GetProviderHealthResponse:
+    properties:
+      health_status:
+        type: string
+      is_available:
+        type: boolean
+      last_health_check:
+        type: string
+      latency_ms:
+        type: integer
+      paused:
+        type: boolean
+      provider_id:
+        type: string
+      provider_type:
+        type: string
+      tier:
+        type: integer
+      username:
+        type: string
+    type: object
+  provider.ListModelsResponse:
+    properties:
+      models:
+        items:
+          $ref: '#/definitions/provider.ProviderModel'
+        type: array
+      username:
+        type: string
+    type: object
+  provider.ProviderHealthPushModel:
+    properties:
+      created:
+        type: integer
+      id:
+        type: string
+      object:
+        type: string
+      owned_by:
+        type: string
+    type: object
+  provider.ProviderHealthPushRequest:
+    properties:
+      cloudflare:
+        $ref: '#/definitions/provider.CloudflareInfo'
+      data:
+        items:
+          $ref: '#/definitions/provider.ProviderHealthPushModel'
+        type: array
+      gpu:
+        $ref: '#/definitions/provider.GPUInfo'
+      object:
+        type: string
+      provider_type:
+        type: string
+    required:
+    - data
+    - object
+    type: object
+  provider.ProviderModel:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      input_price_tokens:
+        type: number
+      is_active:
+        type: boolean
+      model_name:
+        type: string
+      output_price_tokens:
+        type: number
+      provider_id:
+        type: string
+      service_type:
+        $ref: '#/definitions/provider.ServiceType'
+      updated_at:
+        type: string
+    type: object
+  provider.ServiceType:
+    enum:
+    - ollama
+    - exolabs
+    - llama_cpp
+    - vllm
+    type: string
+    x-enum-varnames:
+    - ServiceTypeOllama
+    - ServiceTypeExolabs
+    - ServiceTypeLlamaCPP
+    - ServiceTypeVLLM
+  provider.UpdateAPIURLRequest:
+    properties:
+      api_url:
+        type: string
+    required:
+    - api_url
+    type: object
+  provider.UpdateAPIURLResponse:
+    properties:
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  provider.UpdateModelRequest:
+    properties:
+      input_price_tokens:
+        minimum: 0
+        type: number
+      model_name:
+        type: string
+      output_price_tokens:
+        minimum: 0
+        type: number
+      service_type:
+        enum:
+        - ollama
+        - exolabs
+        - llama_cpp
+        - vllm
+        type: string
+    required:
+    - input_price_tokens
+    - model_name
+    - output_price_tokens
+    - service_type
+    type: object
+  provider.UpdatePauseRequest:
+    properties:
+      paused:
+        type: boolean
+    required:
+    - paused
+    type: object
+  provider.UpdatePauseResponse:
+    properties:
+      paused:
+        type: boolean
+    type: object
+  provider.ValidateHMACRequest:
+    properties:
+      hmac:
+        type: string
+    required:
+    - hmac
+    type: object
+  provider.ValidateHMACResponse:
+    properties:
+      error:
+        type: string
+      request_data:
+        additionalProperties: true
+        type: object
+      transaction_id:
+        type: string
+      valid:
+        type: boolean
+    type: object
+  provider_comm.SendRequestRequest:
+    properties:
+      hmac:
+        type: string
+      model_name:
+        type: string
+      provider_id:
+        type: string
+      provider_url:
+        type: string
+      request_data:
+        additionalProperties: true
+        type: object
+    required:
+    - hmac
+    - model_name
+    - provider_id
+    - request_data
+    type: object
+host: api.inferoute.com
+info:
+  contact: {}
+  description: API for Inferoute orchestration and providers
+  title: Inferoute API
+  version: "1.0"
+paths:
+  /api/auth/api-keys:
+    post:
+      consumes:
+      - application/json
+      description: Create a new API key for a consumer or provider
+      parameters:
+      - description: API key creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.CreateAPIKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/auth.CreateAPIKeyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      security:
+      - InternalKey: []
+      summary: Create a new API key
+      tags:
+      - auth
+  /api/auth/entities:
+    post:
+      consumes:
+      - application/json
+      description: Create a new consumer or provider for an existing user
+      parameters:
+      - description: Entity creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.CreateEntityRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/auth.CreateEntityResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      security:
+      - InternalKey: []
+      summary: Create a new consumer or provider
+      tags:
+      - auth
+  /api/auth/hold:
+    post:
+      consumes:
+      - application/json
+      description: Place a hold on a user's balance for a pending transaction
+      parameters:
+      - description: Hold deposit request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.HoldDepositRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.HoldDepositResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "402":
+          description: Payment Required
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Place a hold on a user's balance
+      tags:
+      - auth
+  /api/auth/release:
+    post:
+      consumes:
+      - application/json
+      description: Release a hold on a user's balance and return the funds to available
+      parameters:
+      - description: Release hold request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.ReleaseHoldRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.ReleaseHoldResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Release a hold on a user's balance
+      tags:
+      - auth
+  /api/auth/users:
+    post:
+      consumes:
+      - application/json
+      description: Create a new user with a username, API key and initial balance
+      parameters:
+      - description: User creation request with username and initial balance
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.CreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/auth.CreateUserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Create a new user
+      tags:
+      - auth
+  /api/auth/validate:
+    post:
+      consumes:
+      - application/json
+      description: Validate an API key and return user information
+      parameters:
+      - description: API key validation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.ValidateAPIKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.ValidateAPIKeyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Validate an API key
+      tags:
+      - auth
+  /api/cloudflare/tunnel/refresh-token:
+    post:
+      consumes:
+      - application/json
+      description: Allows a provider client to get a new/current token for their tunnel.
+      parameters:
+      - description: Refresh token request including API key and refresh flag
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/cloudflare.RefreshTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cloudflare.RefreshTokenResponse'
+        "400":
+          description: Invalid input
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "401":
+          description: Unauthorized - API key invalid or not a provider
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "404":
+          description: Not Found - Tunnel does not exist for this provider
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      security:
+      - InternalKey: []
+      summary: Refresh or retrieve the token for an existing Cloudflare tunnel
+      tags:
+      - cloudflare
+  /api/cloudflare/tunnel/request:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates provider via API key, then creates/updates a Cloudflare
+        tunnel and DNS, returning token and hostname.
+      parameters:
+      - description: Tunnel request details including API key and service URL
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/cloudflare.RequestTunnelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cloudflare.RequestTunnelResponse'
+        "400":
+          description: Invalid input
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "401":
+          description: Unauthorized - API key invalid or not a provider
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      security:
+      - InternalKey: []
+      summary: Request or get details of a Cloudflare tunnel for a provider
+      tags:
+      - cloudflare
+  /api/health/provider/{provider_id}:
+    get:
+      description: Get detailed health status for a specific provider
+      parameters:
+      - description: Provider ID
+        in: path
+        name: provider_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/health.ProviderHealthResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Get provider health status
+      tags:
+      - Health
+  /api/health/providers/check-stale:
+    post:
+      description: Checks and updates providers that haven't sent a health check recently
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/health.TriggerHealthChecksResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Manually trigger stale provider checks
+      tags:
+      - Health
+  /api/health/providers/filter:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of healthy providers offering a specific model within
+        cost constraints. If no model is specified, returns the cheapest available
+        model for each provider.
+      parameters:
+      - description: Optional name of the model to filter by. If not provided, returns
+          cheapest model per provider
+        in: query
+        name: model_name
+        type: string
+      - description: Optional tier to filter by
+        in: query
+        name: tier
+        type: integer
+      - description: Maximum cost per token (applies to both input and output)
+        in: query
+        name: max_cost
+        required: true
+        type: number
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/health.FilterProvidersResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Filter providers by model, tier, health status, and cost
+      tags:
+      - providers
+  /api/health/providers/healthy:
+    get:
+      description: Get a list of all providers with green health status
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/health.HealthyNodeResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Get all healthy nodes
+      tags:
+      - Health
+  /api/health/providers/update-tiers:
+    post:
+      description: Updates provider tiers based on their health history
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/health.TriggerHealthChecksResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Manually trigger provider tier updates
+      tags:
+      - Health
+  /api/health/providers/user:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of providers belonging to a specific user
+      parameters:
+      - description: User ID to filter by
+        in: query
+        name: user_id
+        required: true
+        type: string
+      - description: Optional model name to filter by
+        in: query
+        name: model_name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/health.FilterProvidersResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Filter providers by user ID
+      tags:
+      - providers
+  /api/provider/api_url:
+    put:
+      consumes:
+      - application/json
+      description: Update the API URL for the authenticated provider
+      parameters:
+      - description: API URL update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/provider.UpdateAPIURLRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/provider.UpdateAPIURLResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Update provider API URL
+      tags:
+      - Provider
+  /api/provider/health:
+    get:
+      consumes:
+      - application/json
+      description: Get the current health status of the authenticated provider
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/provider.GetProviderHealthResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Get provider health status
+      tags:
+      - Provider
+    post:
+      consumes:
+      - application/json
+      description: Push provider's current health and model status
+      parameters:
+      - description: Health data
+        in: body
+        name: health
+        required: true
+        schema:
+          $ref: '#/definitions/provider.ProviderHealthPushRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Push provider health data
+      tags:
+      - Provider
+  /api/provider/models:
+    get:
+      description: Get all models configured for the authenticated provider
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/provider.ListModelsResponse'
+      summary: List provider's models
+      tags:
+      - Provider
+    post:
+      consumes:
+      - application/json
+      description: Add a new model configuration for the authenticated provider
+      parameters:
+      - description: Model configuration
+        in: body
+        name: model
+        required: true
+        schema:
+          $ref: '#/definitions/provider.AddModelRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/provider.ProviderModel'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Add a new model for the provider
+      tags:
+      - Provider
+  /api/provider/models/{model_id}:
+    delete:
+      description: Delete an existing model configuration
+      parameters:
+      - description: Model ID
+        in: path
+        name: model_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Delete a model
+      tags:
+      - Provider
+    put:
+      consumes:
+      - application/json
+      description: Update an existing model configuration
+      parameters:
+      - description: Model ID
+        in: path
+        name: model_id
+        required: true
+        type: string
+      - description: Updated model configuration
+        in: body
+        name: model
+        required: true
+        schema:
+          $ref: '#/definitions/provider.UpdateModelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/provider.ProviderModel'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Update a model
+      tags:
+      - Provider
+  /api/provider/pause:
+    put:
+      consumes:
+      - application/json
+      description: Update the pause status of the authenticated provider
+      parameters:
+      - description: Pause status update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/provider.UpdatePauseRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/provider.UpdatePauseResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Update provider pause status
+      tags:
+      - Provider
+  /api/provider/validate_hmac:
+    post:
+      consumes:
+      - application/json
+      description: Validates an HMAC for a provider and returns the associated request
+        data
+      parameters:
+      - description: HMAC to validate
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/provider.ValidateHMACRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/provider.ValidateHMACResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Validate HMAC
+      tags:
+      - Provider
+  /api/send_requests:
+    post:
+      consumes:
+      - application/json
+      description: Sends a request to a specific provider and waits for response
+      parameters:
+      - description: Request details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/provider_comm.SendRequestRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Provider response
+          schema: {}
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Send request to provider
+      tags:
+      - Provider Communication
+  /v1/chat/completions:
+    post:
+      consumes:
+      - application/json
+      description: Handles the complete request flow from consumer to provider
+      parameters:
+      - description: OpenAI request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_api_orchestrator.OpenAIRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Provider response
+          schema: {}
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Process an OpenAI-compatible API request
+      tags:
+      - orchestrator
+  /v1/models:
+    get:
+      description: Get a list of available models in OpenAI-compatible format
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ai_applications.ModelResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_sentnl_inferoute-node_pkg_common.ErrorResponse'
+      summary: Get available models
+      tags:
+      - Models
+schemes:
+- https
+- http
+swagger: "2.0"

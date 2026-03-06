@@ -1,0 +1,64 @@
+# Generate OpenAPI spec and publish to GitHub Pages.
+# inferoute-web pulls this spec on each of its own builds (no dispatch from here).
+name: API docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pkg/api/**'
+      - 'cmd/**'
+      - 'docs/**'
+      - 'go.mod'
+      - '.github/workflows/docs.yml'
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: docs
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install swag
+        run: go install github.com/swaggo/swag/cmd/swag@latest
+
+      - name: Generate OpenAPI spec
+        run: swag init -g cmd/orchestrator/main.go -o docs --parseDependency --parseInternal
+
+      - name: Prepare gh-pages artifact
+        run: |
+          mkdir -p deploy
+          cp docs/swagger.json deploy/openapi.json
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: deploy
+
+  deploy:
+    needs: docs
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

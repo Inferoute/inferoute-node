@@ -48,7 +48,7 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 // @Failure 400 {object} common.ErrorResponse "Invalid request"
 // @Failure 401 {object} common.ErrorResponse "Unauthorized"
 // @Failure 500 {object} common.ErrorResponse "Internal server error"
-// @Router /api/v1/process [post]
+// @Router /v1/chat/completions [post]
 func (h *Handler) ProcessRequest(c echo.Context) error {
 	// Extract original request path from X-Original-URI header
 	originalPath := c.Request().Header.Get("X-Original-URI")
